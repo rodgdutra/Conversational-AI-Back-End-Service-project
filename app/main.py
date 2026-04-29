@@ -13,7 +13,11 @@ from fastapi import FastAPI, HTTPException
 from langchain_core.messages import HumanMessage, AIMessage
 
 from app.agent.graph import compiled_graph
+from app.logger import get_logger
 from app.models import ChatRequest, ChatResponse
+from app.config import config
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -21,11 +25,13 @@ from app.models import ChatRequest, ChatResponse
 
 load_dotenv()
 
-if not os.getenv("OPENROUTER_API_KEY"):
+if not config.OPENROUTER_API_KEY:
     raise RuntimeError(
         "OPENROUTER_API_KEY environment variable is not set. "
         "Copy .env.example to .env and fill in your OpenRouter API key."
     )
+
+logger.info("Service starting | OPENROUTER_API_KEY configured ✓")
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -102,15 +108,17 @@ async def chat(request: ChatRequest) -> ChatResponse:
     user_message = request.message.strip()
 
     if not user_message:
+        logger.warning("POST /chat | Empty message received | session_id='%s'", session_id)
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     # -----------------------------------------------------------------------
     # Retrieve or initialise session state
     # -----------------------------------------------------------------------
     current_state = session_store.get(session_id)
+    is_new_session = current_state is None
 
-    if current_state is None:
-        # Brand new session — start with an empty state
+    if is_new_session:
+        logger.info("POST /chat | New session started | session_id='%s'", session_id)
         current_state = {
             "messages": [],
             "verified": False,
@@ -118,6 +126,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
             "patient_name": None,
             "pending_action": None,
         }
+    else:
+        turn = len(current_state["messages"]) + 1
+        logger.info(
+            "POST /chat | Continuing session | session_id='%s' turn=%d verified=%s",
+            session_id, turn, current_state.get("verified", False),
+        )
+
+    logger.info("POST /chat | User message | session_id='%s' msg='%.100s'", session_id, user_message)
 
     # -----------------------------------------------------------------------
     # Append the user's new message and invoke the graph
@@ -130,6 +146,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
     try:
         new_state: dict = compiled_graph.invoke(input_state)
     except Exception as exc:
+        logger.error(
+            "POST /chat | Agent error | session_id='%s' error='%s'",
+            session_id, str(exc), exc_info=True,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Agent error: {str(exc)}",
@@ -146,6 +166,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
     reply = _get_last_ai_reply(new_state)
     verified = bool(new_state.get("verified", False))
 
+    logger.info(
+        "POST /chat | Response sent | session_id='%s' verified=%s reply_len=%d",
+        session_id, verified, len(reply),
+    )
+    logger.debug("POST /chat | Reply preview | session_id='%s' reply='%.120s'", session_id, reply)
+
     return ChatResponse(session_id=session_id, reply=reply, verified=verified)
 
 
@@ -157,5 +183,7 @@ async def clear_session(session_id: str):
     """
     if session_id in session_store:
         del session_store[session_id]
+        logger.info("DELETE /chat | Session cleared | session_id='%s'", session_id)
         return {"detail": f"Session '{session_id}' has been cleared."}
+    logger.warning("DELETE /chat | Session not found | session_id='%s'", session_id)
     raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")

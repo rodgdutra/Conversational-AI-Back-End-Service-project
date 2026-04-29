@@ -38,14 +38,7 @@ have access to it.
 import json
 import os
 from typing import Literal
-
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode
-
-from app.agent.state import AgentState
-from app.agent.tools import ALL_TOOLS
+from app.config import config
 
 # ---------------------------------------------------------------------------
 # OpenRouter configuration
@@ -54,9 +47,21 @@ from app.agent.tools import ALL_TOOLS
 # rather than a cryptic downstream exception.
 # ---------------------------------------------------------------------------
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_API_KEY = config.OPENROUTER_API_KEY
+OPENROUTER_BASE_URL = config.OPENROUTER_BASE_URL
+OPENROUTER_MODEL = config.OPENROUTER_MODEL
+
+
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_openrouter import ChatOpenRouter
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode
+
+from app.agent.state import AgentState
+from app.agent.tools import ALL_TOOLS
+from app.logger import get_logger
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -108,7 +113,7 @@ Never reveal internal patient IDs in your responses; use the patient's name inst
 # LLM setup
 # ---------------------------------------------------------------------------
 
-def _build_llm() -> ChatOpenAI:
+def _build_llm() -> ChatOpenRouter:
     """
     Build the LLM instance pointed at OpenRouter, then bind all tools.
 
@@ -118,17 +123,20 @@ def _build_llm() -> ChatOpenAI:
       - OPENROUTER_MODEL     : Model name recognised by OpenRouter
                                (default: openai/gpt-4o-mini)
     """
-    llm = ChatOpenAI(
+    llm = ChatOpenRouter(
         model=OPENROUTER_MODEL,
         temperature=0,
-        openai_api_key=OPENROUTER_API_KEY,
-        openai_api_base=OPENROUTER_BASE_URL,
-        default_headers={
-            # Recommended by OpenRouter for analytics / prioritisation
-            "HTTP-Referer": "https://github.com/rodgdutra/Conversational-AI-Back-End-Service-project",
-            "X-Title": "Conversational AI Appointment Assistant",
-        },
+        max_tokens=1024,
+        api_key=OPENROUTER_API_KEY,
+        base_url=OPENROUTER_BASE_URL,
+        # default_headers={
+        #     # Recommended by OpenRouter for analytics / prioritisation
+        #     "HTTP-Referer": "https://github.com/rodgdutra/Conversational-AI-Back-End-Service-project",
+        #     "X-Title": "Conversational AI Appointment Assistant",
+        # },
     )
+    logger.info("LLM initialized using OpenRouter.")
+
     return llm.bind_tools(ALL_TOOLS)
 
 
@@ -144,12 +152,29 @@ def assistant_node(state: AgentState) -> dict:
     llm = _build_llm()
 
     messages = list(state["messages"])
+    verified = state.get("verified", False)
+    patient_name = state.get("patient_name") or "unverified"
+
+    logger.debug(
+        "Node: assistant | verified=%s patient='%s' history_len=%d model='%s'",
+        verified, patient_name, len(messages), OPENROUTER_MODEL,
+    )
 
     # Ensure the system prompt is always the first message
     if not messages or not isinstance(messages[0], SystemMessage):
         messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
 
     response: AIMessage = llm.invoke(messages)
+
+    tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
+    if tool_calls:
+        tool_names = [tc["name"] for tc in tool_calls]
+        logger.info("Node: assistant | LLM requesting tools: %s", tool_names)
+    else:
+        # Truncate long replies in the log
+        preview = (response.content or "")[:120].replace("\n", " ")
+        logger.info("Node: assistant | LLM reply (preview): '%s...'", preview)
+
     return {"messages": [response]}
 
 
@@ -180,7 +205,14 @@ def update_state_node(state: AgentState) -> dict:
             updates["verified"] = True
             updates["patient_id"] = result.get("patient_id")
             updates["patient_name"] = result.get("patient_name")
+            logger.info(
+                "Node: update_state | Patient verified and promoted to state | "
+                "patient_id='%s' name='%s'",
+                updates["patient_id"], updates["patient_name"],
+            )
 
+    if not updates:
+        logger.debug("Node: update_state | No state updates required")
     return updates if updates else {}
 
 
@@ -192,7 +224,9 @@ def should_use_tools(state: AgentState) -> Literal["tools", "__end__"]:
     """Route to the tool node if the last AI message contains tool calls."""
     last_message = state["messages"][-1]
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        logger.debug("Router: should_use_tools → 'tools'")
         return "tools"
+    logger.debug("Router: should_use_tools → '__end__' (replying to user)")
     return "__end__"
 
 
@@ -202,6 +236,10 @@ def should_use_tools(state: AgentState) -> Literal["tools", "__end__"]:
 
 def build_graph() -> StateGraph:
     """Construct and compile the LangGraph StateGraph."""
+    logger.info(
+        "Building LangGraph | model='%s' base_url='%s'",
+        OPENROUTER_MODEL, OPENROUTER_BASE_URL,
+    )
     tool_node = ToolNode(ALL_TOOLS)
 
     builder = StateGraph(AgentState)
@@ -225,7 +263,9 @@ def build_graph() -> StateGraph:
     builder.add_edge("tools", "update_state")
     builder.add_edge("update_state", "assistant")
 
-    return builder.compile()
+    graph = builder.compile()
+    logger.info("LangGraph compiled successfully | nodes=%s", list(graph.nodes.keys()))
+    return graph
 
 
 # Singleton compiled graph — imported by the FastAPI layer

@@ -5,6 +5,10 @@ In a real system this would be replaced with actual DB queries.
 
 from typing import Optional
 
+from app.logger import get_logger
+
+logger = get_logger(__name__)
+
 # ---------------------------------------------------------------------------
 # Mock patient records
 # ---------------------------------------------------------------------------
@@ -87,25 +91,35 @@ APPOINTMENTS = [
 
 def find_patient(full_name: str, phone: str, date_of_birth: str) -> Optional[dict]:
     """Return a patient record if identity details match, else None."""
+    logger.debug(
+        "Identity lookup attempt | name='%s' phone='%s' dob='%s'",
+        full_name, phone, date_of_birth,
+    )
     for patient in PATIENTS:
         name_match = patient["full_name"].strip().lower() == full_name.strip().lower()
         phone_match = patient["phone"].replace("-", "").replace(" ", "") == phone.replace("-", "").replace(" ", "")
         dob_match = patient["date_of_birth"] == date_of_birth.strip()
         if name_match and phone_match and dob_match:
+            logger.info("Identity verified | patient_id='%s' name='%s'", patient["id"], patient["full_name"])
             return patient
+    logger.warning("Identity verification failed | name='%s' phone='%s' dob='%s'", full_name, phone, date_of_birth)
     return None
 
 
 def get_appointments(patient_id: str) -> list[dict]:
     """Return all appointments for a given patient."""
-    return [a for a in APPOINTMENTS if a["patient_id"] == patient_id]
+    results = [a for a in APPOINTMENTS if a["patient_id"] == patient_id]
+    logger.debug("Fetched appointments | patient_id='%s' count=%d", patient_id, len(results))
+    return results
 
 
 def get_appointment_by_id(appointment_id: str, patient_id: str) -> Optional[dict]:
     """Return a specific appointment if it belongs to the patient, else None."""
     for appt in APPOINTMENTS:
         if appt["id"] == appointment_id and appt["patient_id"] == patient_id:
+            logger.debug("Appointment found | appointment_id='%s' patient_id='%s'", appointment_id, patient_id)
             return appt
+    logger.debug("Appointment not found | appointment_id='%s' patient_id='%s'", appointment_id, patient_id)
     return None
 
 
@@ -114,7 +128,12 @@ def confirm_appointment(appointment_id: str, patient_id: str) -> Optional[dict]:
     for appt in APPOINTMENTS:
         if appt["id"] == appointment_id and appt["patient_id"] == patient_id:
             appt["status"] = "confirmed"
+            logger.info(
+                "Appointment confirmed | appointment_id='%s' patient_id='%s' date='%s' doctor='%s'",
+                appointment_id, patient_id, appt["date"], appt["doctor"],
+            )
             return appt
+    logger.warning("Confirm failed — appointment not found | appointment_id='%s' patient_id='%s'", appointment_id, patient_id)
     return None
 
 
@@ -123,5 +142,10 @@ def cancel_appointment(appointment_id: str, patient_id: str) -> Optional[dict]:
     for appt in APPOINTMENTS:
         if appt["id"] == appointment_id and appt["patient_id"] == patient_id:
             appt["status"] = "cancelled"
+            logger.info(
+                "Appointment cancelled | appointment_id='%s' patient_id='%s' date='%s' doctor='%s'",
+                appointment_id, patient_id, appt["date"], appt["doctor"],
+            )
             return appt
+    logger.warning("Cancel failed — appointment not found | appointment_id='%s' patient_id='%s'", appointment_id, patient_id)
     return None

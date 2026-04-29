@@ -13,6 +13,9 @@ from app.data import (
     confirm_appointment,
     cancel_appointment,
 )
+from app.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @tool
@@ -27,14 +30,17 @@ def verify_patient_tool(full_name: str, phone: str, date_of_birth: str) -> dict:
       - patient_name (str | None): Patient's full name when verified.
       - message (str): Human-readable outcome.
     """
+    logger.info("Tool called: verify_patient_tool | name='%s'", full_name)
     patient = find_patient(full_name, phone, date_of_birth)
     if patient:
+        logger.info("Tool result: verify_patient_tool | SUCCESS patient_id='%s'", patient["id"])
         return {
             "verified": True,
             "patient_id": patient["id"],
             "patient_name": patient["full_name"],
             "message": f"Identity verified for {patient['full_name']}.",
         }
+    logger.warning("Tool result: verify_patient_tool | FAILED name='%s'", full_name)
     return {
         "verified": False,
         "patient_id": None,
@@ -58,7 +64,9 @@ def list_appointments_tool(patient_id: str) -> dict:
       - appointments (list): List of appointment records.
       - message (str): Human-readable summary.
     """
+    logger.info("Tool called: list_appointments_tool | patient_id='%s'", patient_id)
     appointments = get_appointments(patient_id)
+    logger.info("Tool result: list_appointments_tool | patient_id='%s' count=%d", patient_id, len(appointments))
     if not appointments:
         return {
             "appointments": [],
@@ -90,8 +98,16 @@ def confirm_appointment_tool(patient_id: str, appointment_id: str) -> dict:
       - appointment (dict | None): The updated appointment record.
       - message (str): Human-readable outcome.
     """
+    logger.info(
+        "Tool called: confirm_appointment_tool | appointment_id='%s' patient_id='%s'",
+        appointment_id, patient_id,
+    )
     appt = confirm_appointment(appointment_id, patient_id)
     if appt:
+        logger.info(
+            "Tool result: confirm_appointment_tool | SUCCESS appointment_id='%s' date='%s'",
+            appointment_id, appt["date"],
+        )
         return {
             "success": True,
             "appointment": appt,
@@ -100,6 +116,10 @@ def confirm_appointment_tool(patient_id: str, appointment_id: str) -> dict:
                 f"with {appt['doctor']} has been confirmed."
             ),
         }
+    logger.warning(
+        "Tool result: confirm_appointment_tool | NOT FOUND appointment_id='%s' patient_id='%s'",
+        appointment_id, patient_id,
+    )
     return {
         "success": False,
         "appointment": None,
@@ -124,8 +144,16 @@ def cancel_appointment_tool(patient_id: str, appointment_id: str) -> dict:
       - appointment (dict | None): The updated appointment record.
       - message (str): Human-readable outcome.
     """
+    logger.info(
+        "Tool called: cancel_appointment_tool | appointment_id='%s' patient_id='%s'",
+        appointment_id, patient_id,
+    )
     appt = cancel_appointment(appointment_id, patient_id)
     if appt:
+        logger.info(
+            "Tool result: cancel_appointment_tool | SUCCESS appointment_id='%s' date='%s'",
+            appointment_id, appt["date"],
+        )
         return {
             "success": True,
             "appointment": appt,
@@ -134,6 +162,10 @@ def cancel_appointment_tool(patient_id: str, appointment_id: str) -> dict:
                 f"with {appt['doctor']} has been cancelled."
             ),
         }
+    logger.warning(
+        "Tool result: cancel_appointment_tool | NOT FOUND appointment_id='%s' patient_id='%s'",
+        appointment_id, patient_id,
+    )
     return {
         "success": False,
         "appointment": None,
