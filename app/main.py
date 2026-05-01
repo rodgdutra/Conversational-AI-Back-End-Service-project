@@ -17,7 +17,10 @@ from app.agent.graph import compiled_graph
 from app.agent.persistence import AsyncStatePersistenceService
 from app.db import init_db
 from app.logger import get_logger
-from app.models import ChatRequest, ChatResponse
+from app.models import (
+    ChatRequest, ChatResponse, SessionStatesResponse, 
+    SessionTransitionsResponse, StateMetadata, StateTransitionData
+)
 from app.config import config
 
 logger = get_logger(__name__)
@@ -108,6 +111,82 @@ async def health_check():
     return {"status": "ok", "service": "Conversational AI Appointment Assistant"}
 
 
+@app.get("/sessions/{session_id}/states", response_model=SessionStatesResponse, tags=["Session History"])
+async def get_session_states(
+    session_id: str,
+    state_service: AsyncStatePersistenceService = Depends(get_state_service)
+):
+    """
+    Get all states for a session.
+    
+    This endpoint allows you to see the history of states for a particular
+    conversation session, which is useful for debugging or analysis.
+    """
+    states = await state_service.list_states(session_id)
+    
+    if not states:
+        logger.warning("GET /sessions/states | No states found | session_id='%s'", session_id)
+        raise HTTPException(status_code=404, detail=f"No states found for session '{session_id}'")
+    
+    logger.info("GET /sessions/states | Retrieved %d states | session_id='%s'", len(states), session_id)
+    return SessionStatesResponse(session_id=session_id, states=states)
+
+
+@app.get("/sessions/{session_id}/states/{state_id}", tags=["Session History"])
+async def get_session_state(
+    session_id: str,
+    state_id: int,
+    state_service: AsyncStatePersistenceService = Depends(get_state_service)
+):
+    """
+    Get a specific state for a session.
+    
+    This endpoint allows you to retrieve a particular state in the conversation history.
+    """
+    state = await state_service.load_state(session_id, state_id)
+    
+    if not state:
+        logger.warning("GET /sessions/state | State not found | session_id='%s' state_id=%d", session_id, state_id)
+        raise HTTPException(
+            status_code=404, 
+            detail=f"State {state_id} not found for session '{session_id}'"
+        )
+    
+    logger.info("GET /sessions/state | Retrieved state | session_id='%s' state_id=%d", session_id, state_id)
+    return state
+
+
+@app.get("/sessions/{session_id}/transitions", response_model=SessionTransitionsResponse, tags=["Session History"])
+async def get_session_transitions(
+    session_id: str,
+    state_service: AsyncStatePersistenceService = Depends(get_state_service)
+):
+    """
+    Get all transitions for a session.
+    
+    This endpoint allows you to see how the conversation progressed from one state to another,
+    including metadata about each transition.
+    """
+    transitions = await state_service.get_state_transitions(session_id)
+    
+    if not transitions:
+        logger.warning(
+            "GET /sessions/transitions | No transitions found | session_id='%s'", 
+            session_id
+        )
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No transitions found for session '{session_id}'"
+        )
+    
+    logger.info(
+        "GET /sessions/transitions | Retrieved %d transitions | session_id='%s'", 
+        len(transitions), 
+        session_id
+    )
+    return SessionTransitionsResponse(session_id=session_id, transitions=transitions)
+
+
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(
     request: ChatRequest,
@@ -150,10 +229,11 @@ async def chat(
             "pending_action": None,
         }
     else:
-        turn = len(current_state.get("messages", [])) + 1
+        # Get metadata if available
+        state_id = current_state.get("_metadata", {}).get("state_id", 0)
         logger.info(
-            "POST /chat | Continuing session | session_id='%s' turn=%d verified=%s",
-            session_id, turn, current_state.get("verified", False),
+            "POST /chat | Continuing session | session_id='%s' state_id=%d verified=%s",
+            session_id, state_id, current_state.get("verified", False),
         )
 
     logger.info("POST /chat | User message | session_id='%s' msg='%.100s'", session_id, user_message)
@@ -179,9 +259,21 @@ async def chat(
         ) from exc
 
     # -----------------------------------------------------------------------
-    # Persist updated state
+    # Persist updated state with transition information
     # -----------------------------------------------------------------------
-    save_result = await state_service.save_state(session_id, new_state)
+    transition_data = {
+        "user_message": user_message,
+        "reply_length": len(_get_last_ai_reply(new_state)),
+        "is_verified": bool(new_state.get("verified", False)),
+    }
+    
+    save_result = await state_service.save_state(
+        session_id=session_id, 
+        state=new_state,
+        transition_type="user_message",
+        transition_data=transition_data
+    )
+    
     if not save_result:
         logger.warning(
             "POST /chat | Failed to persist state | session_id='%s'",
@@ -194,13 +286,22 @@ async def chat(
     reply = _get_last_ai_reply(new_state)
     verified = bool(new_state.get("verified", False))
 
+    # Get state metadata if available
+    state_metadata = new_state.get("_metadata", {})
+    state_id = state_metadata.get("state_id", 0)
+
     logger.info(
-        "POST /chat | Response sent | session_id='%s' verified=%s reply_len=%d",
-        session_id, verified, len(reply),
+        "POST /chat | Response sent | session_id='%s' state_id=%d verified=%s reply_len=%d",
+        session_id, state_id, verified, len(reply),
     )
     logger.debug("POST /chat | Reply preview | session_id='%s' reply='%.120s'", session_id, reply)
 
-    return ChatResponse(session_id=session_id, reply=reply, verified=verified)
+    return ChatResponse(
+        session_id=session_id, 
+        reply=reply, 
+        verified=verified,
+        state_id=state_id
+    )
 
 
 @app.delete("/chat/{session_id}", tags=["Chat"])
@@ -219,7 +320,7 @@ async def clear_session(
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     
     # Delete the session
-    delete_result = await state_service.delete_state(session_id)
+    delete_result = await state_service.delete_session(session_id)
     if delete_result:
         logger.info("DELETE /chat | Session cleared | session_id='%s'", session_id)
         return {"detail": f"Session '{session_id}' has been cleared."}
