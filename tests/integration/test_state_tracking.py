@@ -74,7 +74,7 @@ class TestStateTracking:
         # Create additional states
         for i in range(min(4, len(test_messages))):
             message = test_messages[i]
-            verified = i >= 2  # After the third message, we'll assume verification
+            verified = i >= 1  # After the third message, we'll assume verification
             
             next_state = create_test_state(message, verified)
             transition_type = "verification" if i == 2 else "user_message"
@@ -139,6 +139,8 @@ class TestStateTracking:
             
             # Check verification status is correct (states 3, 4, 5 should be verified)
             expected_verified = state_id >= 3
+            logger.info(f"Loading state {state_id} - Verified: {state.get('verified')} - Expected: {expected_verified}")
+
             assert state.get("verified") == expected_verified, f"Verification status incorrect for state {state_id}"
             
             # Check message content
