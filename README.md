@@ -1,357 +1,133 @@
-# Conversational AI Appointment Assistant — Back-End Service
+# Conversational AI Back-End Service with LangGraph
 
-A FastAPI back-end service that exposes a conversational endpoint powered by a
-**LangGraph** multi-agent workflow. Patients interact with the assistant through
-a chat interface to manage their clinic appointments.
+A healthcare back-end service that uses a LangGraph multi-agent workflow to help patients manage their appointments through a conversational interface.
 
----
+## Features
 
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Project Structure](#project-structure)
-4. [Prerequisites](#prerequisites)
-5. [Setup](#setup)
-6. [Running the Service](#running-the-service)
-7. [API Reference](#api-reference)
-8. [Conversation Flow](#conversation-flow)
-9. [Mock Data](#mock-data)
-10. [Configuration](#configuration)
-
----
-
-## Overview
-
-The service implements the following interaction flow:
-
-| Step | Feature | Gate |
-|------|---------|------|
-| 1 | **User Verification** — patient identity confirmed via full name, phone, and date of birth | Always required first |
-| 2 | **List Appointments** | After successful verification |
-| 3 | **Confirm Appointment** | After successful verification |
-| 4 | **Cancel Appointment** | After successful verification |
-| 5 | **Free Navigation** — patient may move between actions naturally | After successful verification |
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        FastAPI Layer                        │
-│  POST /chat  ──►  PostgreSQL DB  ──►  LangGraph Graph       │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-          ┌────────────────▼─────────────────┐
-          │         LangGraph Graph           │
-          │                                   │
-          │  START ──► assistant_node         │
-          │                 │                 │
-          │         has tool calls?           │
-          │          ┌──────┴──────┐          │
-          │         YES            NO         │
-          │          │              │         │
-          │          ▼              ▼         │
-          │      tools_node        END        │
-          │          │                        │
-          │          ▼                        │
-          │    update_state_node              │
-          │          │                        │
-          │          └──────► assistant_node  │
-          └───────────────────────────────────┘
-                           │
-          ┌────────────────▼────────────────┐
-          │          Tool Layer              │
-          │  verify_patient_tool             │
-          │  list_appointments_tool          │
-          │  confirm_appointment_tool        │
-          │  cancel_appointment_tool         │
-          └──────────────────────────────────┘
-                           │
-          ┌────────────────▼────────────────┐
-           │        Mock Data Layer           │
-           │  app/data.py  (in-memory)        │
-           └──────────────────────────────────┘
-                            │
-           ┌────────────────▼────────────────┐
-           │    PostgreSQL Persistence        │
-           │  Graph states stored by session  │
-           └──────────────────────────────────┘
-```
-
-### Graph Nodes
-
-| Node | Role |
-|------|------|
-| `assistant_node` | Calls the LLM (via OpenRouter) with the full conversation history + system prompt. Decides whether to call a tool or reply. |
-| `tools_node` | Executes tool calls requested by the LLM (`ToolNode` from `langgraph.prebuilt`). |
-| `update_state_node` | Inspects tool results and promotes verification data (`verified`, `patient_id`, `patient_name`) into the graph state. |
-
-### Tools
-
-| Tool | Description |
-|------|-------------|
-| `verify_patient_tool` | Looks up the patient by full name, phone, and date of birth. |
-| `list_appointments_tool` | Returns all appointments for the verified patient. |
-| `confirm_appointment_tool` | Marks an appointment as **confirmed**. |
-| `cancel_appointment_tool` | Marks an appointment as **cancelled**. |
-
----
-
-## Project Structure
-
-```
-.
-├── .env.example              # Environment variable template
-├── .gitignore
-├── requirements.txt
-├── README.md
-├── Dockerfile                # Docker container definition
-├── docker-compose.yml        # Multi-container Docker setup
-├── init_db.py                # Database initialization script
-└── app/
-    ├── __init__.py
-    ├── main.py               # FastAPI application & session management
-    ├── models.py             # Pydantic request / response models
-    ├── config.py             # Configuration loader
-    ├── db.py                 # Database connection and models
-    ├── data.py               # Mock patient & appointment data + helpers
-    └── agent/
-        ├── __init__.py
-        ├── state.py          # LangGraph AgentState definition
-        ├── tools.py          # LangChain tools wrapping the data layer
-        ├── persistence.py    # PostgreSQL state persistence
-        └── graph.py          # LangGraph graph (nodes, edges, compiler)
-```
-
----
-
-## Prerequisites
-
-- [Miniforge / Conda](https://github.com/conda-forge/miniforge) (or any conda distribution)
-- An [OpenRouter](https://openrouter.ai) account and API key
-- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) (optional, for containerized setup)
-- PostgreSQL (if running without Docker)
-
----
+- Conversational AI interface for healthcare appointments
+- Patient identity verification
+- Appointment listing, confirmation, and cancellation
+- Persistent state tracking with PostgreSQL
+- Multi-agent workflow using LangGraph
 
 ## Setup
 
-### 1. Activate the conda environment
+### Prerequisites
 
-```bash
-conda activate conversational-ai-service
-```
+- Python 3.10+
+- Docker and Docker Compose
+- PostgreSQL database
 
-> If the environment does not exist yet, create it first:
-> ```bash
-> conda create -n conversational-ai-service python=3.12 -y
-> conda activate conversational-ai-service
-> pip install -r requirements.txt
-> ```
+### Installation
 
-### 2. Configure environment variables
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/Conversational-AI-Back-End-Service-project.git
+   cd Conversational-AI-Back-End-Service-project
+   ```
 
-```bash
-cp .env.example .env
-```
+2. Set up environment variables:
+   ```
+   cp .env.example .env
+   ```
+   Edit `.env` with your API keys and configuration.
 
-Edit `.env` and fill in your OpenRouter API key and database configuration:
+3. Start with Docker:
+   ```
+   docker-compose up -d
+   ```
 
-```dotenv
-# OpenRouter Configuration
-OPENROUTER_API_KEY=sk-or-...your-key-here...
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1   # optional, default shown
-OPENROUTER_MODEL=openai/gpt-4o-mini                # optional, default shown
+4. Or install locally:
+   ```
+   pip install -r requirements.txt
+   python init_db.py
+   uvicorn app.main:app --reload
+   ```
 
-# Database Configuration
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=langgraph_states
-POSTGRES_SCHEMA=public
-```
+## Usage
 
----
+The API has the following endpoints:
 
-## Running the Service
+- `GET /`: Health check
+- `POST /chat`: Send a message to the assistant
+- `DELETE /chat/{session_id}`: Clear a conversation session
 
-### Option 1: Using Conda environment (requires local PostgreSQL)
-
-```bash
-conda activate conversational-ai-service
-# Initialize the database
-python init_db.py
-# Start the service
-uvicorn app.main:app --reload
-```
-
-### Option 2: Using Docker Compose (recommended)
-
-This method starts both the application and PostgreSQL database in Docker containers:
-
-```bash
-# Build and start the containers
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-```
-
-The service starts on **http://localhost:8000**.
-
-- Interactive docs (Swagger UI): http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-### Stopping the Service
-
-If using Docker Compose:
-
-```bash
-docker-compose down
-```
-
-To remove the PostgreSQL data volume:
-
-```bash
-docker-compose down -v
-```
-
----
-
-## API Reference
-
-### `GET /`
-
-Health check.
-
-**Response**
-```json
-{ "status": "ok", "service": "Conversational AI Appointment Assistant" }
-```
-
----
-
-### `POST /chat`
-
-Send a conversational message. The same `session_id` must be used for all
-turns of a single conversation.
-
-**Request body**
+Example request:
 ```json
 {
-  "session_id": "patient-session-001",
-  "message": "Hi, I need help with my appointments."
+  "session_id": "user123",
+  "message": "I'd like to check my appointments please"
 }
 ```
 
-**Response**
-```json
-{
-  "session_id": "patient-session-001",
-  "reply": "Hello! I'd be happy to help you manage your appointments...",
-  "verified": false
-}
+## Testing
+
+The project includes a comprehensive test suite using pytest. Tests are organized into:
+
+- Unit tests: Test individual components
+- Integration tests: Test component interactions
+
+### Running Tests with Docker
+
+Use the provided script to run tests in a Docker environment:
+
+```bash
+./run-tests.sh
 ```
 
-The `verified` field becomes `true` once the patient's identity has been
-successfully confirmed.
+This script:
+- Creates a dedicated test database
+- Runs all tests in an isolated environment
+- Cleans up containers when done
 
----
+Additional options:
+```bash
+# Run specific tests
+./run-tests.sh "-xvs tests/integration/test_state_tracking.py"
 
-### `DELETE /chat/{session_id}`
-
-Clear the conversation history for a session (start fresh).
-
----
-
-## Conversation Flow
-
-Below is a sample interaction showing the full flow:
-
-```
-User  : Hi, I need help with my appointments.
-Bot   : Hello! I'd be happy to help you manage your appointments. Before I
-        can assist you, I need to verify your identity. Could you please
-        provide your full name?
-
-User  : Alice Johnson
-Bot   : Thank you, Alice! Could you please share your phone number?
-
-User  : 555-1234
-Bot   : And finally, your date of birth in YYYY-MM-DD format please.
-
-User  : 1985-03-15
-Bot   : ✅ I've verified your identity, Alice! How can I help you today?
-        You can:
-          • List your appointments
-          • Confirm an appointment
-          • Cancel an appointment
-
-User  : Show me my appointments.
-Bot   : Here are your upcoming appointments:
-          [A001] 2026-05-10 at 09:00 – General Practice with Dr. Emily Carter (scheduled)
-          [A002] 2026-05-20 at 14:30 – Dermatology with Dr. Michael Lee (scheduled)
-        What would you like to do?
-
-User  : Please confirm appointment A001.
-Bot   : ✅ Appointment on 2026-05-10 at 09:00 with Dr. Emily Carter has been
-        confirmed. Is there anything else I can help you with?
-
-User  : Actually, cancel appointment A002.
-Bot   : ✅ Appointment on 2026-05-20 at 14:30 with Dr. Michael Lee has been
-        cancelled. Would you like to see your updated appointments or need
-        anything else?
+# Skip rebuilding the container
+./run-tests.sh --no-rebuild "-xvs tests/unit/"
 ```
 
----
+### Running Tests Locally
 
-## Mock Data
+You can also run tests directly with pytest:
 
-Three test patients are available:
+```bash
+# Run all tests
+pytest
 
-| Name | Phone | Date of Birth | Patient ID |
-|------|-------|---------------|------------|
-| Alice Johnson | 555-1234 | 1985-03-15 | P001 |
-| Bob Smith | 555-5678 | 1990-07-22 | P002 |
-| Carol White | 555-9012 | 1978-11-30 | P003 |
+# Run with coverage
+pytest --cov=app
 
-Phone numbers are normalised (dashes and spaces are ignored during matching).
+# Run specific test file
+pytest tests/integration/test_state_tracking.py
+```
 
----
+For more test options, see the documentation in `tests/README.md`.
 
-## Configuration
+## Architecture
 
-All configuration lives in the `.env` file:
+The service follows a layered architecture:
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENROUTER_API_KEY` | **Yes** | — | Your OpenRouter API key |
-| `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | OpenRouter base URL |
-| `OPENROUTER_MODEL` | No | `openai/gpt-4o-mini` | Model identifier on OpenRouter |
-| `POSTGRES_HOST` | No | `localhost` | PostgreSQL host |
-| `POSTGRES_PORT` | No | `5432` | PostgreSQL port |
-| `POSTGRES_USER` | No | `postgres` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | No | `postgres` | PostgreSQL password |
-| `POSTGRES_DB` | No | `langgraph_states` | PostgreSQL database name |
-| `POSTGRES_SCHEMA` | No | `public` | PostgreSQL schema |
+- `app/main.py`: FastAPI application entry point
+- `app/agent/graph.py`: LangGraph workflow definition
+- `app/agent/tools.py`: LangChain tools for appointment management
+- `app/agent/state.py`: State definitions and transitions
+- `app/agent/persistence.py`: PostgreSQL state persistence
+- `app/data.py`: Data access layer
+- `app/models.py`: Pydantic models for API
 
-Any [model listed on OpenRouter](https://openrouter.ai/models) that supports
-**function/tool calling** can be used (e.g. `openai/gpt-4o`,
-`anthropic/claude-3.5-sonnet`, `google/gemini-flash-1.5`).
+## Database Schema
 
-## State Persistence
+The service uses PostgreSQL with the following schema:
 
-The application uses PostgreSQL to persist LangGraph states between sessions. This allows:
+- `sessions`: Conversation sessions
+- `graph_states`: Persistent LangGraph states
+- `state_transitions`: State transition history
+- `patients`: Patient records
+- `appointments`: Appointment records
 
-1. **Conversation continuity**: Users can continue conversations even if the server restarts
-2. **Scalability**: The application can be deployed across multiple instances
-3. **State tracking**: All session states include session IDs for traceability
+## License
 
-The state persistence is implemented in `app/agent/persistence.py` and provides:
-
-- Automatic serialization/deserialization of LangGraph states
-- Asynchronous database operations for FastAPI compatibility
-- State management by session ID
+[MIT License](LICENSE)
