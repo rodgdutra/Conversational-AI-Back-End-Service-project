@@ -40,7 +40,7 @@ The service implements the following interaction flow:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        FastAPI Layer                        │
-│  POST /chat  ──►  session_store  ──►  LangGraph Graph       │
+│  POST /chat  ──►  PostgreSQL DB  ──►  LangGraph Graph       │
 └──────────────────────────┬──────────────────────────────────┘
                            │
           ┌────────────────▼─────────────────┐
@@ -70,9 +70,14 @@ The service implements the following interaction flow:
           └──────────────────────────────────┘
                            │
           ┌────────────────▼────────────────┐
-          │        Mock Data Layer           │
-          │  app/data.py  (in-memory)        │
-          └──────────────────────────────────┘
+           │        Mock Data Layer           │
+           │  app/data.py  (in-memory)        │
+           └──────────────────────────────────┘
+                            │
+           ┌────────────────▼────────────────┐
+           │    PostgreSQL Persistence        │
+           │  Graph states stored by session  │
+           └──────────────────────────────────┘
 ```
 
 ### Graph Nodes
@@ -102,15 +107,21 @@ The service implements the following interaction flow:
 ├── .gitignore
 ├── requirements.txt
 ├── README.md
+├── Dockerfile                # Docker container definition
+├── docker-compose.yml        # Multi-container Docker setup
+├── init_db.py                # Database initialization script
 └── app/
     ├── __init__.py
     ├── main.py               # FastAPI application & session management
     ├── models.py             # Pydantic request / response models
+    ├── config.py             # Configuration loader
+    ├── db.py                 # Database connection and models
     ├── data.py               # Mock patient & appointment data + helpers
     └── agent/
         ├── __init__.py
         ├── state.py          # LangGraph AgentState definition
         ├── tools.py          # LangChain tools wrapping the data layer
+        ├── persistence.py    # PostgreSQL state persistence
         └── graph.py          # LangGraph graph (nodes, edges, compiler)
 ```
 
@@ -120,6 +131,8 @@ The service implements the following interaction flow:
 
 - [Miniforge / Conda](https://github.com/conda-forge/miniforge) (or any conda distribution)
 - An [OpenRouter](https://openrouter.ai) account and API key
+- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) (optional, for containerized setup)
+- PostgreSQL (if running without Docker)
 
 ---
 
@@ -144,27 +157,67 @@ conda activate conversational-ai-service
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your OpenRouter API key:
+Edit `.env` and fill in your OpenRouter API key and database configuration:
 
 ```dotenv
+# OpenRouter Configuration
 OPENROUTER_API_KEY=sk-or-...your-key-here...
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1   # optional, default shown
 OPENROUTER_MODEL=openai/gpt-4o-mini                # optional, default shown
+
+# Database Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=langgraph_states
+POSTGRES_SCHEMA=public
 ```
 
 ---
 
 ## Running the Service
 
+### Option 1: Using Conda environment (requires local PostgreSQL)
+
 ```bash
 conda activate conversational-ai-service
+# Initialize the database
+python init_db.py
+# Start the service
 uvicorn app.main:app --reload
+```
+
+### Option 2: Using Docker Compose (recommended)
+
+This method starts both the application and PostgreSQL database in Docker containers:
+
+```bash
+# Build and start the containers
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
 ```
 
 The service starts on **http://localhost:8000**.
 
 - Interactive docs (Swagger UI): http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
+
+### Stopping the Service
+
+If using Docker Compose:
+
+```bash
+docker-compose down
+```
+
+To remove the PostgreSQL data volume:
+
+```bash
+docker-compose down -v
+```
 
 ---
 
@@ -278,7 +331,27 @@ All configuration lives in the `.env` file:
 | `OPENROUTER_API_KEY` | **Yes** | — | Your OpenRouter API key |
 | `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | OpenRouter base URL |
 | `OPENROUTER_MODEL` | No | `openai/gpt-4o-mini` | Model identifier on OpenRouter |
+| `POSTGRES_HOST` | No | `localhost` | PostgreSQL host |
+| `POSTGRES_PORT` | No | `5432` | PostgreSQL port |
+| `POSTGRES_USER` | No | `postgres` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | No | `postgres` | PostgreSQL password |
+| `POSTGRES_DB` | No | `langgraph_states` | PostgreSQL database name |
+| `POSTGRES_SCHEMA` | No | `public` | PostgreSQL schema |
 
 Any [model listed on OpenRouter](https://openrouter.ai/models) that supports
 **function/tool calling** can be used (e.g. `openai/gpt-4o`,
 `anthropic/claude-3.5-sonnet`, `google/gemini-flash-1.5`).
+
+## State Persistence
+
+The application uses PostgreSQL to persist LangGraph states between sessions. This allows:
+
+1. **Conversation continuity**: Users can continue conversations even if the server restarts
+2. **Scalability**: The application can be deployed across multiple instances
+3. **State tracking**: All session states include session IDs for traceability
+
+The state persistence is implemented in `app/agent/persistence.py` and provides:
+
+- Automatic serialization/deserialization of LangGraph states
+- Asynchronous database operations for FastAPI compatibility
+- State management by session ID
