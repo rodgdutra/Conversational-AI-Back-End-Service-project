@@ -243,11 +243,28 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Asynchronous engine and session factory
-async_engine = create_async_engine(
-    config.ASYNC_DATABASE_URL,
-    echo=config.LOG_LEVEL == "DEBUG",
-    pool_pre_ping=True,
-)
+async_url = config.ASYNC_DATABASE_URL
+# Ensure the URL has the asyncpg driver
+if "postgresql+asyncpg://" not in async_url:
+    logger.warning(f"ASYNC_DATABASE_URL doesn't have asyncpg driver, attempting to fix")
+    async_url = async_url.replace("postgresql://", "postgresql+asyncpg://")
+    async_url = async_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+
+logger.info(f"Creating async engine with URL driver: {async_url.split('://', 1)[0]}")
+try:
+    async_engine = create_async_engine(
+        async_url,
+        echo=config.LOG_LEVEL == "DEBUG",
+        pool_pre_ping=True,
+    )
+    logger.info("Async database engine created successfully")
+except Exception as e:
+    logger.error(f"Failed to create async database engine: {str(e)}")
+    # Fallback to a placeholder async engine that will raise clear errors if used
+    class FailingAsyncEngine:
+        def connect(self):
+            raise RuntimeError(f"Async database engine creation failed: {str(e)}")
+    async_engine = FailingAsyncEngine()
 AsyncSessionLocal = async_sessionmaker(
     autocommit=False, 
     autoflush=False, 

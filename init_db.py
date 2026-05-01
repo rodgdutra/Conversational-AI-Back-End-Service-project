@@ -50,8 +50,15 @@ def wait_for_postgres(retries=5, delay=10):
 
 def create_db_if_not_exists():
     """Create the database if it doesn't exist."""
+    # Always use the synchronous database URL for creation (sqlalchemy_utils doesn't support asyncpg)
     db_url = config.DATABASE_URL
-    logger.info(f"Checking if database '{config.POSTGRES_DB}' exists...")
+    
+    # Make sure we're using psycopg2 for database creation
+    if "postgresql+psycopg2://" not in db_url and "postgresql://" not in db_url:
+        db_url = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+        logger.warning(f"Changed database URL driver to psycopg2 for database creation")
+    
+    logger.info(f"Checking if database '{config.POSTGRES_DB}' exists using URL: {db_url}")
     
     if not database_exists(db_url):
         logger.info(f"Creating database '{config.POSTGRES_DB}'...")

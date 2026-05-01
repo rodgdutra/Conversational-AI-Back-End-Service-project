@@ -39,13 +39,26 @@ class Config:
     @property
     def ASYNC_DATABASE_URL(self) -> str:
         """Get the async database connection URL."""
+        # First check for a specific async URL
+        db_url = os.getenv("ASYNC_DATABASE_URL")
+        if db_url:
+            return db_url
+            
+        # If not, check for DATABASE_URL but ensure it has the right driver
         db_url = os.getenv("DATABASE_URL")
-        if not db_url:
-            db_url = (
-                f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-                f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-            )
-        return db_url
+        if db_url:
+            # If DATABASE_URL is provided but doesn't have asyncpg, replace the driver
+            if "postgresql+asyncpg://" not in db_url:
+                # Replace postgresql:// or postgresql+psycopg2:// with postgresql+asyncpg://
+                db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+                db_url = db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+            return db_url
+            
+        # If no environment variables are set, build the URL manually
+        return (
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
 
     @property
     def USE_OLLAMA(self) -> bool:
