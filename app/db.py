@@ -1,12 +1,18 @@
 """
 Database connection and session management.
+
+This module defines:
+1. Database models for LangGraph state persistence
+2. Database models for patient and appointment data
+3. Connection management and initialization functions
 """
 import json
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, date
+from enum import Enum
 
-from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, create_engine, MetaData, desc, func
+from sqlalchemy import Column, String, Text, Integer, DateTime, Date, Time, ForeignKey, create_engine, MetaData, desc, func, Enum as SQLEnum
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
@@ -122,6 +128,109 @@ class StateTransition(Base):
             to_state_id=to_state_id,
             transition_type=transition_type,
             transition_data=json.dumps(transition_data) if transition_data else None,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Patient & Appointment Models
+# ---------------------------------------------------------------------------
+
+class Patient(Base):
+    """
+    Patient record for the appointment system.
+    
+    Matches the structure of the original mock data with proper SQLAlchemy typing.
+    """
+    __tablename__ = "patients"
+    
+    id = Column(String(10), primary_key=True)  # We'll keep the "P001" style IDs
+    full_name = Column(String(100), nullable=False, index=True)
+    phone = Column(String(20), nullable=False)
+    date_of_birth = Column(String(10), nullable=False)  # Stored as YYYY-MM-DD string
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationship to appointments
+    appointments = relationship("Appointment", back_populates="patient", cascade="all, delete-orphan")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert patient to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "full_name": self.full_name,
+            "phone": self.phone,
+            "date_of_birth": self.date_of_birth,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Patient":
+        """Create a Patient instance from a dictionary."""
+        return cls(
+            id=data.get("id"),
+            full_name=data.get("full_name"),
+            phone=data.get("phone"),
+            date_of_birth=data.get("date_of_birth"),
+        )
+
+
+class AppointmentStatus(str, Enum):
+    """Valid appointment statuses."""
+    SCHEDULED = "scheduled"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    MISSED = "missed"
+
+
+class Appointment(Base):
+    """
+    Appointment record for the scheduling system.
+    
+    Matches the structure of the original mock data with proper SQLAlchemy typing.
+    """
+    __tablename__ = "appointments"
+    
+    id = Column(String(10), primary_key=True)  # We'll keep the "A001" style IDs
+    patient_id = Column(String(10), ForeignKey("patients.id"), nullable=False, index=True)
+    date = Column(String(10), nullable=False)  # Stored as YYYY-MM-DD string
+    time = Column(String(5), nullable=False)   # Stored as HH:MM string
+    doctor = Column(String(100), nullable=False)
+    specialty = Column(String(100), nullable=False)
+    status = Column(SQLEnum(AppointmentStatus), nullable=False, default=AppointmentStatus.SCHEDULED)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationship to patient
+    patient = relationship("Patient", back_populates="appointments")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert appointment to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "date": self.date,
+            "time": self.time,
+            "doctor": self.doctor,
+            "specialty": self.specialty,
+            "status": self.status.value,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Appointment":
+        """Create an Appointment instance from a dictionary."""
+        # Handle status - it might come as a string or enum
+        status = data.get("status", AppointmentStatus.SCHEDULED)
+        if isinstance(status, str):
+            status = AppointmentStatus(status)
+            
+        return cls(
+            id=data.get("id"),
+            patient_id=data.get("patient_id"),
+            date=data.get("date"),
+            time=data.get("time"),
+            doctor=data.get("doctor"),
+            specialty=data.get("specialty"),
+            status=status,
         )
 
 
