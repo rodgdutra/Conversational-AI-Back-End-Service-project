@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: langgraph_postgres_test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-langgraph_test}
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  test:
+    build: .
+    container_name: langgraph_test
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+    environment:
+      # Database connection
+      - POSTGRES_HOST=postgres_test
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-langgraph_test}
+      - POSTGRES_SCHEMA=${POSTGRES_SCHEMA:-public}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # Test-specific settings
+      - PYTEST_ADDOPTS="-v"
+      - PYTHONPATH=/app
+      # Tell pytest this is a test environment
+      - ENVIRONMENT=test
+    volumes:
+      - .:/app
+    command: >
+      sh -c "python -m pytest tests/ ${PYTEST_ARGS:-} -v"
+
+volumes:
+  postgres_test_data:
