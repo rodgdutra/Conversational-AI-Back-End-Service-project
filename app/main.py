@@ -9,10 +9,13 @@ import os
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import HumanMessage, AIMessage
 
 from app.agent.graph import compiled_graph
+from app.agent.persistence import AsyncStatePersistenceService
+from app.db import init_db
 from app.logger import get_logger
 from app.models import ChatRequest, ChatResponse
 from app.config import config
@@ -33,6 +36,14 @@ if not config.OPENROUTER_API_KEY:
 
 logger.info("Service starting | OPENROUTER_API_KEY configured ✓")
 
+# Initialize the database
+try:
+    init_db()
+    logger.info("Database initialized successfully")
+except Exception as e:
+    logger.error(f"Database initialization failed: {str(e)}")
+    raise
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -48,13 +59,22 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Add CORS middleware if needed
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust this for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ---------------------------------------------------------------------------
-# In-memory session store
-# Keyed by session_id → the latest AgentState snapshot returned by the graph.
-# In production this should be replaced with a persistent store (e.g. Redis).
+# Session state persistence
 # ---------------------------------------------------------------------------
 
-session_store: dict[str, dict[str, Any]] = {}
+# Dependency for accessing the state persistence service
+def get_state_service():
+    return AsyncStatePersistenceService()
 
 
 # ---------------------------------------------------------------------------
@@ -89,13 +109,16 @@ async def health_check():
 
 
 @app.post("/chat", response_model=ChatResponse, tags=["Chat"])
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(
+    request: ChatRequest,
+    state_service: AsyncStatePersistenceService = Depends(get_state_service)
+) -> ChatResponse:
     """
     Process a single conversational turn.
 
     The client must supply a stable **session_id** across all turns of the
-    same conversation.  The service maintains state (including whether the
-    patient has been verified) in memory for the lifetime of the session.
+    same conversation. The service persists state (including whether the
+    patient has been verified) in PostgreSQL for the lifetime of the session.
 
     **Flow**
     1. First turn: the assistant greets the patient and requests identity info.
@@ -114,7 +137,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     # -----------------------------------------------------------------------
     # Retrieve or initialise session state
     # -----------------------------------------------------------------------
-    current_state = session_store.get(session_id)
+    current_state = await state_service.load_state(session_id)
     is_new_session = current_state is None
 
     if is_new_session:
@@ -127,7 +150,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             "pending_action": None,
         }
     else:
-        turn = len(current_state["messages"]) + 1
+        turn = len(current_state.get("messages", [])) + 1
         logger.info(
             "POST /chat | Continuing session | session_id='%s' turn=%d verified=%s",
             session_id, turn, current_state.get("verified", False),
@@ -140,7 +163,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     # -----------------------------------------------------------------------
     input_state = {
         **current_state,
-        "messages": current_state["messages"] + [HumanMessage(content=user_message)],
+        "messages": current_state.get("messages", []) + [HumanMessage(content=user_message)],
     }
 
     try:
@@ -158,7 +181,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
     # -----------------------------------------------------------------------
     # Persist updated state
     # -----------------------------------------------------------------------
-    session_store[session_id] = new_state
+    save_result = await state_service.save_state(session_id, new_state)
+    if not save_result:
+        logger.warning(
+            "POST /chat | Failed to persist state | session_id='%s'",
+            session_id
+        )
 
     # -----------------------------------------------------------------------
     # Build and return the response
@@ -176,14 +204,28 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @app.delete("/chat/{session_id}", tags=["Chat"])
-async def clear_session(session_id: str):
+async def clear_session(
+    session_id: str,
+    state_service: AsyncStatePersistenceService = Depends(get_state_service)
+):
     """
     Clear the conversation history for a given session.
     Useful for starting a fresh conversation without changing the session ID.
     """
-    if session_id in session_store:
-        del session_store[session_id]
+    # First check if the session exists
+    current_state = await state_service.load_state(session_id)
+    if not current_state:
+        logger.warning("DELETE /chat | Session not found | session_id='%s'", session_id)
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    
+    # Delete the session
+    delete_result = await state_service.delete_state(session_id)
+    if delete_result:
         logger.info("DELETE /chat | Session cleared | session_id='%s'", session_id)
         return {"detail": f"Session '{session_id}' has been cleared."}
-    logger.warning("DELETE /chat | Session not found | session_id='%s'", session_id)
-    raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    else:
+        logger.error("DELETE /chat | Failed to delete session | session_id='%s'", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete session '{session_id}'. Database error."
+        )
