@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from app.agent.graph import compiled_graph
 from app.agent.persistence import AsyncStatePersistenceService
 from app.db import init_db
+from app.data import initialize_mock_data
 from app.logger import get_logger
 from app.models import (
     ChatRequest, ChatResponse, SessionStatesResponse, 
@@ -39,10 +40,15 @@ if not config.OPENROUTER_API_KEY:
 
 logger.info("Service starting | OPENROUTER_API_KEY configured ✓")
 
-# Initialize the database
+# Initialize the database and mock data
 try:
+    # Create database schema
     init_db()
-    logger.info("Database initialized successfully")
+    logger.info("Database schema initialized successfully")
+    
+    # Seed database with sample data if needed
+    initialize_mock_data()
+    logger.info("Mock data initialization complete")
 except Exception as e:
     logger.error(f"Database initialization failed: {str(e)}")
     raise
