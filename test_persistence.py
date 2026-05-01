@@ -80,7 +80,7 @@ async def test_async_persistence():
     
     # Delete state
     logger.info("Deleting state...")
-    delete_result = await service.delete_state(session_id)
+    delete_result = await service.delete_session(session_id)
     if not delete_result:
         logger.error("Failed to delete state!")
         return False
@@ -124,6 +124,7 @@ def test_sync_persistence():
     # Load state
     logger.info("Loading state...")
     loaded_state = service.load_state(session_id)
+    logger.info(f"Loaded state {loaded_state}")
     if not loaded_state:
         logger.error("Failed to load state!")
         return False
@@ -139,7 +140,7 @@ def test_sync_persistence():
     
     # Delete state
     logger.info("Deleting state...")
-    delete_result = service.delete_state(session_id)
+    delete_result = service.delete_session(session_id)
     if not delete_result:
         logger.error("Failed to delete state!")
         return False
