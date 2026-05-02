@@ -237,7 +237,7 @@ async def chat(
         }
     else:
         # Get metadata if available
-        logger.info("Current state: {current_state}")
+        logger.info(f"Current state: {current_state}")
         state_id = current_state.get("_metadata", {}).get("state_id", 0)
         logger.info(
             "POST /chat | Continuing session | session_id='%s' state_id=%d verified=%s",

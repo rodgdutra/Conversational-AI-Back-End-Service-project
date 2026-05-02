@@ -355,6 +355,7 @@ class TestAccessControl:
             "My name is Alice Johnson, phone 555-1234, DOB 1985-03-15",
         )
         logger.info("Reply after correct verification: %s", reply3["reply"][:200])
+        logger.info(f"after correct verification data: {reply3}")
 
         # Step 4: Now request cancellation again
         reply4 = chat(client, session_id, "Please cancel my appointment A001 now")
@@ -362,6 +363,7 @@ class TestAccessControl:
             "Reply after cancellation request (verified): %s", reply4["reply"][:200]
         )
 
+        logger.info(f"Last reply data: {reply4}")
         # User should be verified and cancellation should be processed
         assert reply4["verified"] is True, "User should be verified"
         assert (
