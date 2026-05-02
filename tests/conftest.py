@@ -3,16 +3,42 @@ import sys
 import pytest
 import asyncio
 from typing import Generator, AsyncGenerator
+from unittest.mock import patch, MagicMock
 from sqlalchemy import text
 
 # Add the project root directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from app.db import init_db, engine, Base, get_db, get_async_db
+# ---------------------------------------------------------------------------
+# CRITICAL: Mock database initialization BEFORE importing anything from app
+# This must happen at module load time, before any test imports app.main
+# ---------------------------------------------------------------------------
+
+# Create mock functions to replace the real ones
+def _mock_init_db():
+    """Mock version of init_db that does nothing."""
+    pass
+
+def _mock_initialize_mock_data():
+    """Mock version of initialize_mock_data that does nothing."""
+    pass
+
+# Apply patches before any app modules are imported
+_mock_init_db_patcher = patch('app.main.init_db', side_effect=_mock_init_db)
+_mock_init_data_patcher = patch('app.main.initialize_mock_data', side_effect=_mock_initialize_mock_data)
+
+# Start the patches immediately
+_mock_init_db_patcher.start()
+_mock_init_data_patcher.start()
+
+# Now we can safely import from app
 from app.logger import get_logger
+from app.db import Base
 
 logger = get_logger(__name__)
+
+logger.info("Applied mocks to app.main.init_db and app.main.initialize_mock_data")
 
 
 @pytest.fixture(scope="session")
@@ -26,6 +52,7 @@ def event_loop() -> Generator:
 @pytest.fixture(scope="session", autouse=True)
 def initialize_database() -> None:
     """Initialize the database schema before running any tests."""
+    from app.db import init_db, engine, Base
     from app.config import config
     
     logger.info("Setting up test database...")
@@ -46,6 +73,7 @@ def initialize_database() -> None:
 @pytest.fixture(scope="function")
 def db_session() -> Generator:
     """Get a database session for tests."""
+    from app.db import get_db
     db = get_db()
     try:
         yield db
@@ -57,6 +85,7 @@ def db_session() -> Generator:
 @pytest.fixture(scope="function")
 async def async_db_session() -> AsyncGenerator:
     """Get an async database session for tests."""
+    from app.db import get_async_db
     async with get_async_db() as session:
         try:
             yield session
