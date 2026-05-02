@@ -216,6 +216,58 @@ class TestConfirmAppointment:
         assert "confirmed" not in reply2_text, "Appointment must not be confirmed on failed verification"
         assert reply2["verified"] is False
 
+    def test_confirms_appointment_after_retry_with_correct_credentials(
+        self, client: TestClient, session_id: str
+    ):
+        """
+        Verification edge-case: User provides *wrong* credentials first, is
+        told verification failed, then provides the *correct* credentials and
+        successfully confirms an appointment.
+
+        Expected:
+        - First attempt: agent reports verification failure, appointment NOT confirmed.
+        - Second attempt (correct credentials): session reaches verified=True.
+        - Appointment confirmation is processed once verified.
+        """
+        logger.info("Starting test: confirm after retry with correct credentials")
+
+        # Step 1 – request confirmation (triggers identity request)
+        reply1 = chat(client, session_id, "Please confirm appointment A001 for me")
+        assert reply1["verified"] is False
+
+        # Step 2 – wrong credentials
+        reply2 = chat(
+            client,
+            session_id,
+            "My name is Wrong Person, phone 000-0000, DOB 2099-12-31",
+        )
+        logger.info("Reply after wrong credentials: %s", reply2["reply"][:200])
+        reply2_text = reply2["reply"].lower()
+        assert any(
+            kw in reply2_text
+            for kw in ["could not", "couldn't", "unable", "failed", "sorry", "verify"]
+        ), f"Expected failure message, got: {reply2['reply']}"
+        assert "confirmed" not in reply2_text, "Appointment must not be confirmed on failed verification"
+        assert reply2["verified"] is False
+
+        # Step 3 – correct credentials
+        reply3 = chat(
+            client,
+            session_id,
+            "My name is Alice Johnson, phone 555-1234, DOB 1985-03-15",
+        )
+        logger.info("Reply after correct credentials: %s", reply3["reply"][:200])
+
+        # Step 4 – confirm the appointment (session should now be verified)
+        confirm_reply = chat(client, session_id, "Please confirm my appointment A001 now")
+        logger.info("Confirm reply: %s", confirm_reply["reply"][:300])
+
+        assert confirm_reply["verified"] is True, "Session must be verified after correct credentials"
+        assert (
+            "confirmed" in confirm_reply["reply"].lower()
+            or "confirm" in confirm_reply["reply"].lower()
+        ), f"Expected confirmation after retry verification, got: {confirm_reply['reply']}"
+
     def test_confirms_appointment_after_successful_verification(
         self, client: TestClient, session_id: str
     ):

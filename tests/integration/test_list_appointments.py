@@ -233,6 +233,57 @@ class TestListAppointments:
             f"Expected appointment listings, got: {list_reply['reply']}"
         )
 
+    def test_lists_appointments_after_retry_with_correct_credentials(
+        self, client: TestClient, session_id: str
+    ):
+        """
+        Verification edge-case: User provides *wrong* credentials first, is
+        told verification failed, then provides the *correct* credentials and
+        successfully lists appointments.
+
+        Expected:
+        - First attempt: agent reports verification failure, no data shown.
+        - Second attempt (correct credentials): session reaches verified=True.
+        - Appointment list is returned once verified.
+        """
+        logger.info("Starting test: list after retry with correct credentials")
+
+        # Step 1 – trigger the flow (agent asks for identity)
+        reply1 = chat(client, session_id, "I want to see my appointments")
+        assert reply1["verified"] is False
+
+        # Step 2 – wrong credentials
+        reply2 = chat(
+            client,
+            session_id,
+            "My name is Wrong Person, phone 000-0000, DOB 2099-12-31",
+        )
+        logger.info("Reply after wrong credentials: %s", reply2["reply"][:200])
+        reply2_text = reply2["reply"].lower()
+        assert any(
+            kw in reply2_text
+            for kw in ["could not", "couldn't", "unable", "failed", "sorry", "verify"]
+        ), f"Expected failure message, got: {reply2['reply']}"
+        assert "A001" not in reply2["reply"], "No appointments should appear after failed verification"
+        assert reply2["verified"] is False
+
+        # Step 3 – correct credentials
+        reply3 = chat(
+            client,
+            session_id,
+            "My name is Alice Johnson, phone 555-1234, DOB 1985-03-15",
+        )
+        logger.info("Reply after correct credentials: %s", reply3["reply"][:200])
+
+        # Step 4 – list appointments (session should now be verified)
+        list_reply = chat(client, session_id, "Now please show me my appointments")
+        logger.info("List reply: %s", list_reply["reply"][:300])
+
+        assert list_reply["verified"] is True, "Session must be verified after correct credentials"
+        assert "A001" in list_reply["reply"] or "A002" in list_reply["reply"], (
+            f"Expected appointment list after retry verification, got: {list_reply['reply']}"
+        )
+
     def test_lists_appointments_immediately_after_inline_verification(
         self, client: TestClient, session_id: str
     ):
