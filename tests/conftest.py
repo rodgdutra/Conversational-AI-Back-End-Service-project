@@ -175,8 +175,8 @@ def cleanup_database(db_session) -> None:
     try:
         logger.info("Post-test database cleanup …")
 
-        # Disable FK constraints so TRUNCATE can run in any order
-        db_session.execute(text("SET session_replication_role = 'replica'"))
+        # Disable FK triggers for this transaction only (SET LOCAL reverts on commit)
+        db_session.execute(text("SET LOCAL session_replication_role = 'replica'"))
 
         tables = list(reversed(Base.metadata.sorted_tables))
         logger.debug("Tables to truncate: %s", [t.name for t in tables])
@@ -196,8 +196,8 @@ def cleanup_database(db_session) -> None:
                         "DELETE also failed for %s: %s", table.name, exc2
                     )
 
-        # Re-enable FK constraints
-        db_session.execute(text("SET session_replication_role = 'origin'"))
+        # Commit releases the transaction; SET LOCAL is automatically reverted,
+        # so the connection returns to the pool with session_replication_role = 'origin'
         db_session.commit()
         logger.info("Tables truncated")
 
