@@ -224,7 +224,7 @@ async def chat(
     # -----------------------------------------------------------------------
     current_state = await state_service.load_state(session_id)
     is_new_session = current_state is None
-
+    
     if is_new_session:
         logger.info("POST /chat | New session started | session_id='%s'", session_id)
         current_state = {
@@ -233,9 +233,11 @@ async def chat(
             "patient_id": None,
             "patient_name": None,
             "pending_action": None,
+            "state_id": 0
         }
     else:
         # Get metadata if available
+        logger.info("Current state: {current_state}")
         state_id = current_state.get("_metadata", {}).get("state_id", 0)
         logger.info(
             "POST /chat | Continuing session | session_id='%s' state_id=%d verified=%s",

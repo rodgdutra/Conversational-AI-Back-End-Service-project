@@ -12,6 +12,7 @@ from app.data import (
     get_appointment_by_id,
     confirm_appointment,
     cancel_appointment,
+    get_all_patients
 )
 from app.logger import get_logger
 
@@ -41,6 +42,7 @@ def verify_patient_tool(full_name: str, phone: str, date_of_birth: str) -> dict:
             "message": f"Identity verified for {patient['full_name']}.",
         }
     logger.warning("Tool result: verify_patient_tool | FAILED name='%s'", full_name)
+    logger.info(f"All patients in DB: {get_all_patients()}")
     return {
         "verified": False,
         "patient_id": None,

@@ -51,7 +51,7 @@ OPENROUTER_API_KEY = config.OPENROUTER_API_KEY
 OPENROUTER_BASE_URL = config.OPENROUTER_BASE_URL
 OPENROUTER_MODEL = config.OPENROUTER_MODEL
 
-
+from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_openrouter import ChatOpenRouter
 from langgraph.graph import StateGraph, END
@@ -123,6 +123,15 @@ def _build_llm() -> ChatOpenRouter:
       - OPENROUTER_MODEL     : Model name recognised by OpenRouter
                                (default: openai/gpt-4o-mini)
     """
+    if config.USE_OLLAMA:
+        llm = ChatOllama(
+            base_url=config.OLLAMA_BASE_URL,
+            model=config.OLLAMA_MODEL,
+        )
+        logger.info("LLM initialized using Ollama.")
+        return llm.bind_tools(ALL_TOOLS)
+    
+    
     llm = ChatOpenRouter(
         model=OPENROUTER_MODEL,
         temperature=0,
@@ -236,10 +245,17 @@ def should_use_tools(state: AgentState) -> Literal["tools", "__end__"]:
 
 def build_graph() -> StateGraph:
     """Construct and compile the LangGraph StateGraph."""
-    logger.info(
+    
+    if config.USE_OLLAMA:
+        logger.info(
         "Building LangGraph | model='%s' base_url='%s'",
-        OPENROUTER_MODEL, OPENROUTER_BASE_URL,
+        config.model_name, config.OLLAMA_BASE_URL,
     )
+    else:
+        logger.info(
+            "Building LangGraph | model='%s' base_url='%s'",
+            OPENROUTER_MODEL, OPENROUTER_BASE_URL,
+        )
     tool_node = ToolNode(ALL_TOOLS)
 
     builder = StateGraph(AgentState)

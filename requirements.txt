@@ -23,3 +23,5 @@ alembic==1.13.1
 asyncpg==0.29.0
 psycopg2_binary==2.9.9
 python-dotenv==1.2.2
+langchain-ollama
+langchain-community

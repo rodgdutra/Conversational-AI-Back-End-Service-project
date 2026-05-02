@@ -24,6 +24,9 @@ class Config:
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "langgraph_states")
     POSTGRES_SCHEMA: str = os.getenv("POSTGRES_SCHEMA", "public")
     
+    # Bypass database data retrieval
+    USE_MOCK_DATA = os.getenv("USE_MOCK_DATA", "false").lower() in ("true", "1", "yes")
+
     # Database URL construction
     @property
     def DATABASE_URL(self) -> str:
