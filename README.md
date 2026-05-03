@@ -34,7 +34,7 @@ A healthcare back-end service that uses a LangGraph multi-agent workflow to help
 
 3. Start with Docker:
    ```
-   docker-compose up -d
+   docker compose -f docker/docker-compose.yml up -d
    ```
 
 4. Or install locally:
@@ -66,40 +66,40 @@ The project includes a comprehensive test suite using pytest. Tests are organise
 
 | Directory | Description | Requires DB? |
 |---|---|---|
-| `tests/agent/` | Agent behaviour — access control, appointment flows, robustness, safety | No (fully mocked) |
+| `tests/agent/` | Agent behaviour — access control, appointment flows, robustness, safety | No ( will depend on `USE_MOCK_DATA` env variable if will use or not) |
 | `tests/integration/` | State persistence, state tracking, patient data | Yes (PostgreSQL) |
-| `tests/unit/` | Individual component unit tests | No |
+| `tests/unit/` | Individual component unit tests | No ( will depend on `USE_MOCK_DATA` env variable if will use or not) |
 
-### Running Agent Tests with Docker
+### Running Tests with Docker
 
-Agent tests use in-memory mocks and **do not require a database**:
+All Docker Compose files live inside the `docker/` directory.
 
+| Compose file | Test suite | Needs DB? |
+|---|---|---|
+| `docker/docker-compose.agent-test.yml` | `tests/agent/` | No ( will depend on `USE_MOCK_DATA` env variable if will use or not) |
+| `docker/docker-compose.unit-test.yml` | `tests/unit/` | No ( will depend on `USE_MOCK_DATA` env variable if will use or not) |
+| `docker/docker-compose.integration-test.yml` | `tests/integration/` | Yes |
+| `docker/docker-compose.test.yml` | All tests | Yes |
+
+**Agent tests**:
 ```bash
-docker-compose -f docker-compose.agent-test.yml up
+docker compose -f docker/docker-compose.agent-test.yml up
+PYTEST_ARGS="-xvs tests/agent/test_list_appointments.py" docker compose -f docker/docker-compose.agent-test.yml up
+docker compose -f docker/docker-compose.agent-test.yml down
 ```
 
-Pass extra pytest arguments via `PYTEST_ARGS`:
-
+**Unit tests**:
 ```bash
-PYTEST_ARGS="-xvs tests/agent/test_list_appointments.py" docker-compose -f docker-compose.agent-test.yml up
+docker compose -f docker/docker-compose.unit-test.yml up
+docker compose -f docker/docker-compose.unit-test.yml down
 ```
 
-Cleanup:
-
+**All tests** (spins up a dedicated PostgreSQL instance):
 ```bash
-docker-compose -f docker-compose.agent-test.yml down
-```
-
-### Running All Tests with Docker
-
-Use the general test configuration (spins up a dedicated PostgreSQL instance):
-
-```bash
-docker-compose -f docker-compose.test.yml up
+docker compose -f docker/docker-compose.test.yml up
 ```
 
 Or use the provided helper script:
-
 ```bash
 ./run-tests.sh
 ```
@@ -121,6 +121,9 @@ pytest
 
 # Run only agent tests
 pytest tests/agent/
+
+# Run only unit tests
+pytest tests/unit/
 
 # Run only integration tests
 pytest tests/integration/

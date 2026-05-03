@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-unit_test}
+      POSTGRES_DB: ${POSTGRES_DB:-langgraph_unit_test}
     ports:
       - "5433:5432"  # Different port to avoid conflicts
     volumes:
@@ -19,8 +19,10 @@ services:
       retries: 5
 
   test:
-    build: .
-    container_name: unit_test
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: langgraph_unit_test
     depends_on:
       postgres_test:
         condition: service_healthy
@@ -30,15 +32,15 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-unit_test}
+      - POSTGRES_DB=${POSTGRES_DB:-langgraph_unit_test}
       - POSTGRES_SCHEMA=${POSTGRES_SCHEMA:-public}
       # Explicitly set DATABASE URLs to ensure proper connection
-      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres_test:5432/${POSTGRES_DB:-unit_test}
-      - ASYNC_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres_test:5432/${POSTGRES_DB:-unit_test}
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres_test:5432/${POSTGRES_DB:-langgraph_unit_test}
+      - ASYNC_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres_test:5432/${POSTGRES_DB:-langgraph_unit_test}
       # Set a mock API key for testing if not provided
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-mock_api_key_for_testing}
       # Use mock data for testing (in-memory patient/appointment data)
-      - USE_MOCK_DATA=true
+      - USE_MOCK_DATA=false
       # Test-specific settings
       - PYTEST_ADDOPTS="-v"
       - PYTHONPATH=/app
@@ -47,7 +49,7 @@ services:
       # Log level
       - LOG_LEVEL=DEBUG
     volumes:
-      - .:/app
+      - ..:/app
     command: >
       sh -c "sleep 3 &&
              python init_db.py &&

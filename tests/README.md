@@ -7,14 +7,14 @@ This directory contains tests for the Conversational AI Back-End Service project
 ```
 tests/
 ├── conftest.py         # Common fixtures and test setup
-├── unit/               # Unit tests (no DB, no network required)
+├── unit/               # Unit tests (no DB required, only used if `USE_MOCK_DATA=false` set in the .env)
 │   ├── test_config.py          # Config properties and URL construction
 │   ├── test_models.py          # Pydantic request/response schema validation
 │   ├── test_data.py            # In-memory data layer (find, get, confirm, cancel)
 │   ├── test_logger.py          # Logger factory
 │   ├── test_agent_state.py     # AgentState defaults and field assignment
 │   └── test_agent_tools.py     # LangChain tool wrappers (mocked data layer)
-├── agent/              # Agent behaviour tests (fully mocked, no DB required)
+├── agent/              # Agent behaviour tests (no DB required, only used if `USE_MOCK_DATA=false` set in the .env)
 │   ├── test_agent_access_control.py      # Identity verification gate
 │   ├── test_appointment_routing.py       # Multi-action routing within a session
 │   ├── test_cancel_appointment.py        # Cancel appointment flow
@@ -131,61 +131,94 @@ We provide dedicated Docker Compose configurations for running tests in isolatio
 
 ---
 
-### Running Agent Tests (`docker-compose.agent-test.yml`)
+All Docker Compose files live in the `docker/` directory at the repo root.
 
-Agent tests are fully mocked and require **no database**. This makes them fast and dependency-free.
+| Compose file | Runs | Needs DB? |
+|---|---|---|
+| `docker/docker-compose.agent-test.yml` | `tests/agent/` | No ( will depend on `USE_MOCK_DATA` env variable if will use or not) |
+| `docker/docker-compose.unit-test.yml` | `tests/unit/` | No ( will depend on `USE_MOCK_DATA` env variable if will use or not) |
+| `docker/docker-compose.integration-test.yml` | `tests/integration/` | Yes |
+| `docker/docker-compose.test.yml` | All tests | Yes |
+
+---
+
+### Running Agent Tests (`docker/docker-compose.agent-test.yml`)
+
+Agent tests are fully mocked and require **no database**. This makes them fast and dependency-free. Nevertheless, it is possible to test with database using `USE_MOCK_DATA=false`. 
 
 1. To run all agent tests:
 
 ```bash
-docker-compose -f docker-compose.agent-test.yml up
+docker compose -f docker/docker-compose.agent-test.yml up
 ```
 
 2. To run a specific agent test file:
 
 ```bash
-PYTEST_ARGS="-xvs tests/agent/test_list_appointments.py" docker-compose -f docker-compose.agent-test.yml up
+PYTEST_ARGS="-xvs tests/agent/test_list_appointments.py" docker compose -f docker/docker-compose.agent-test.yml up
 ```
 
 3. To run with coverage:
 
 ```bash
-PYTEST_ARGS="--cov=app --cov-report=html" docker-compose -f docker-compose.agent-test.yml up
+PYTEST_ARGS="--cov=app --cov-report=html" docker compose -f docker/docker-compose.agent-test.yml up
 ```
 
 4. To clean up the agent test container:
 
 ```bash
-docker-compose -f docker-compose.agent-test.yml down
+docker compose -f docker/docker-compose.agent-test.yml down
 ```
 
 ---
 
-### Running All Tests (`docker-compose.test.yml`)
+### Running Unit Tests (`docker/docker-compose.unit-test.yml`)
+
+Unit tests are also fully mocked and require **no database**. However one can set `USE_MOCK_DATA=false` in order to depend on the dataset to check the tests.
+
+```bash
+docker compose -f docker/docker-compose.unit-test.yml up
+docker compose -f docker/docker-compose.unit-test.yml down
+```
+
+---
+
+### Running Integration Tests (`docker/docker-compose.integration-test.yml`)
+
+Integration tests require a live PostgreSQL instance (started automatically).
+
+```bash
+docker compose -f docker/docker-compose.integration-test.yml up
+docker compose -f docker/docker-compose.integration-test.yml down -v
+```
+
+---
+
+### Running All Tests (`docker/docker-compose.test.yml`)
 
 The general test configuration spins up a dedicated PostgreSQL instance for the integration tests.
 
 1. To run all tests in the Docker container:
 
 ```bash
-docker-compose -f docker-compose.test.yml up
+docker compose -f docker/docker-compose.test.yml up
 ```
 
 2. To run specific tests or use additional pytest arguments:
 
 ```bash
-PYTEST_ARGS="-xvs tests/integration/test_patient_data.py" docker-compose -f docker-compose.test.yml up
+PYTEST_ARGS="-xvs tests/integration/test_patient_data.py" docker compose -f docker/docker-compose.test.yml up
 ```
 
 3. To run with coverage:
 
 ```bash
-PYTEST_ARGS="--cov=app --cov-report=html" docker-compose -f docker-compose.test.yml up
+PYTEST_ARGS="--cov=app --cov-report=html" docker compose -f docker/docker-compose.test.yml up
 ```
 
 ### Benefits of the Test Docker Setup
 
-- Agent test container needs no database — starts instantly
+- Agent and unit test containers need no database — starts instantly
 - Dedicated test database on port 5433 for integration tests (avoids conflicts with development)
 - Clean environment for reproducible test results
 - Independent of your local Python environment
@@ -196,5 +229,5 @@ PYTEST_ARGS="--cov=app --cov-report=html" docker-compose -f docker-compose.test.
 To clean up the integration test containers and volumes:
 
 ```bash
-docker-compose -f docker-compose.test.yml down -v
+docker compose -f docker/docker-compose.test.yml down -v
 ```

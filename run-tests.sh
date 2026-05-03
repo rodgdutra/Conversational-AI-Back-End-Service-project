@@ -42,19 +42,19 @@ fi
 
 # Cleanup old containers if they exist
 echo -e "${GREEN}Cleaning up old test containers...${NC}"
-docker compose -f docker-compose.test.yml down
+docker compose -f docker/docker-compose.test.yml down
 
 if [ "$NO_REBUILD" = false ]; then
     echo -e "${GREEN}Building test containers...${NC}"
-    docker compose -f docker-compose.test.yml build
+    docker compose -f docker/docker-compose.test.yml build
 fi
 
 # Run the tests
 echo -e "${GREEN}Starting tests...${NC}"
-docker compose -f docker-compose.test.yml up --abort-on-container-exit
+docker compose -f docker/docker-compose.test.yml up --abort-on-container-exit
 
 # Cleanup when done
 echo -e "${GREEN}Tests completed, cleaning up...${NC}"
-docker compose -f docker-compose.test.yml down
+docker compose -f docker/docker-compose.test.yml down
 
 echo -e "${GREEN}Done!${NC}"
