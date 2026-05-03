@@ -286,7 +286,7 @@ class AsyncStatePersistenceService:
     @staticmethod
     async def save_state(session_id: str, state: Dict[str, Any],
                          transition_type: str = None,
-                         transition_data: Dict[str, Any] = None) -> bool:
+                         transition_data: Dict[str, Any] = None) -> Optional[int]:
         """
         Asynchronously save a graph state to the database.
 
@@ -297,7 +297,7 @@ class AsyncStatePersistenceService:
             transition_data: Optional data about the transition
 
         Returns:
-            bool: True if save was successful, False otherwise
+            int: The new state_id if save was successful, None otherwise
         """
         try:
             # Convert any non-serializable objects to strings
@@ -356,13 +356,13 @@ class AsyncStatePersistenceService:
                 # Commit changes
                 await db.commit()
                 logger.debug(f"State saved async | session_id='{session_id}' state_id={new_state_id}")
-                return True
+                return new_state_id
         except SQLAlchemyError as e:
             logger.error(f"Failed to save state async | session_id='{session_id}' error='{str(e)}'")
-            return False
+            return None
         except Exception as e:
             logger.error(f"Unexpected error saving state async | session_id='{session_id}' error='{str(e)}'")
-            return False
+            return None
 
     @staticmethod
     async def load_state(session_id: str, state_id: int = None) -> Optional[Dict[str, Any]]:
