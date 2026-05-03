@@ -62,23 +62,47 @@ Example request:
 
 ## Testing
 
-The project includes a comprehensive test suite using pytest. Tests are organized into:
+The project includes a comprehensive test suite using pytest. Tests are organised into three categories:
 
-- Unit tests: Test individual components
-- Integration tests: Test component interactions
+| Directory | Description | Requires DB? |
+|---|---|---|
+| `tests/agent/` | Agent behaviour — access control, appointment flows, robustness, safety | No (fully mocked) |
+| `tests/integration/` | State persistence, state tracking, patient data | Yes (PostgreSQL) |
+| `tests/unit/` | Individual component unit tests | No |
 
-### Running Tests with Docker
+### Running Agent Tests with Docker
 
-Use the provided script to run tests in a Docker environment:
+Agent tests use in-memory mocks and **do not require a database**:
+
+```bash
+docker-compose -f docker-compose.agent-test.yml up
+```
+
+Pass extra pytest arguments via `PYTEST_ARGS`:
+
+```bash
+PYTEST_ARGS="-xvs tests/agent/test_list_appointments.py" docker-compose -f docker-compose.agent-test.yml up
+```
+
+Cleanup:
+
+```bash
+docker-compose -f docker-compose.agent-test.yml down
+```
+
+### Running All Tests with Docker
+
+Use the general test configuration (spins up a dedicated PostgreSQL instance):
+
+```bash
+docker-compose -f docker-compose.test.yml up
+```
+
+Or use the provided helper script:
 
 ```bash
 ./run-tests.sh
 ```
-
-This script:
-- Creates a dedicated test database
-- Runs all tests in an isolated environment
-- Cleans up containers when done
 
 Additional options:
 ```bash
@@ -91,20 +115,25 @@ Additional options:
 
 ### Running Tests Locally
 
-You can also run tests directly with pytest:
-
 ```bash
 # Run all tests
 pytest
 
+# Run only agent tests
+pytest tests/agent/
+
+# Run only integration tests
+pytest tests/integration/
+
 # Run with coverage
 pytest --cov=app
 
-# Run specific test file
-pytest tests/integration/test_state_tracking.py
+# Run a specific test file
+pytest tests/agent/test_list_appointments.py
 ```
 
 For more test options, see the documentation in `tests/README.md`.
+
 
 ## Architecture
 
