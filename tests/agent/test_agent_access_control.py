@@ -75,6 +75,7 @@ class MockStatePersistenceService:
         transition_type: str = None,
         transition_data: dict = None,
     ) -> bool:
+        print("USING MOCK to save states im memory")
         self._states[session_id] = state
         return True
 
