@@ -284,6 +284,107 @@ def _extract_identity_from_messages(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Prompt-leakage guard
+# ---------------------------------------------------------------------------
+
+# Exact string fragments that must never appear in the user-facing reply.
+# These come from internal system-prompt instructions, tool names, and
+# dynamic status messages injected into the LLM context.
+_CONFIDENTIAL_LITERALS = (
+    # Tool names (part of the system prompt, not for end-users)
+    "verify_patient_tool",
+    "list_appointments_tool",
+    "confirm_appointment_tool",
+    "cancel_appointment_tool",
+    # Internal status-message markers
+    "[VERIFICATION STATUS]",
+    "VERIFICATION STATUS",
+    "patient_id=",
+    # Raw field-name from the tool result JSON that the LLM might echo
+    "patient_id:",
+)
+
+# Regex patterns for confidential data that varies per patient
+_CONFIDENTIAL_PATTERNS = (
+    r"\bP\d{3}\b",  # Internal patient IDs: P001, P002, P003 …
+)
+
+
+def _strip_prompt_leakage(response: AIMessage) -> AIMessage:
+    """
+    Scan the LLM's text reply for any fragment that would expose internal
+    system information — tool names, status markers, or raw patient IDs.
+
+    Behaviour
+    ---------
+    • Messages that contain tool_calls are NOT shown to the end-user;
+      they pass through unchanged.
+    • For plain-text replies: each confidential literal is removed in-place
+      and each confidential pattern is regex-substituted away.
+    • If the cleaned text is shorter than 20 characters (i.e. the content
+      was almost entirely internal boilerplate), a safe generic fallback is
+      returned instead.
+    • All redaction events are logged at WARNING level so they are
+      visible in the audit trail without surfacing to the user.
+    """
+    content = response.content or ""
+
+    # Tool-call messages are not delivered as text to the user — skip.
+    if not content or response.tool_calls:
+        return response
+
+    cleaned = content
+    leaked = False
+
+    # -----------------------------------------------------------------------
+    # Exact-string redaction
+    # -----------------------------------------------------------------------
+    for fragment in _CONFIDENTIAL_LITERALS:
+        if fragment in cleaned:
+            leaked = True
+            logger.warning(
+                "Node: assistant | Prompt leakage guard — redacting literal '%s'",
+                fragment,
+            )
+            cleaned = cleaned.replace(fragment, "")
+
+    # -----------------------------------------------------------------------
+    # Regex-pattern redaction
+    # -----------------------------------------------------------------------
+    for pattern in _CONFIDENTIAL_PATTERNS:
+        if re.search(pattern, cleaned):
+            leaked = True
+            logger.warning(
+                "Node: assistant | Prompt leakage guard — redacting pattern '%s'",
+                pattern,
+            )
+            cleaned = re.sub(pattern, "", cleaned)
+
+    if not leaked:
+        return response  # nothing to fix
+
+    # Normalise whitespace introduced by the removals
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    # If the cleaned text is too short to be meaningful, return a safe fallback
+    if len(cleaned) < 20:
+        cleaned = (
+            "I'm sorry, I'm unable to share that information. "
+            "Is there something else I can help you with regarding your appointments?"
+        )
+
+    logger.warning(
+        "Node: assistant | Prompt leakage redacted | "
+        "original_len=%d cleaned_len=%d",
+        len(content),
+        len(cleaned),
+    )
+
+    return AIMessage(content=cleaned, tool_calls=response.tool_calls)
+
+
 def _intercept_hallucination(
     state: AgentState, response: AIMessage
 ) -> AIMessage:
@@ -430,6 +531,11 @@ def assistant_node(state: AgentState) -> dict:
     # Hallucination guard
     # ------------------------------------------------------------------
     response = _intercept_hallucination(state, response)
+
+    # ------------------------------------------------------------------
+    # Prompt-leakage guard
+    # ------------------------------------------------------------------
+    response = _strip_prompt_leakage(response)
 
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
     if tool_calls:
