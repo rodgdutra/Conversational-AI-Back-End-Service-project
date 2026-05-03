@@ -37,6 +37,8 @@ services:
       - ASYNC_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres_test:5432/${POSTGRES_DB:-langgraph_test}
       # Set a mock API key for testing if not provided
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-mock_api_key_for_testing}
+      # Use mock data for testing (in-memory patient/appointment data)
+      - USE_MOCK_DATA=true
       # Test-specific settings
       - PYTEST_ADDOPTS="-v"
       - PYTHONPATH=/app
