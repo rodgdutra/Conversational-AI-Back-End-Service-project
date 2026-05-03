@@ -305,28 +305,68 @@ _CONFIDENTIAL_LITERALS = (
     "patient_id:",
 )
 
+# Structural section headers unique to our system prompt.
+# If ANY of these appear in a plain-text reply the entire response is
+# treated as a prompt dump and replaced with a safe fallback — redacting
+# individual phrases would still leave a partially-coherent prompt copy
+# which is equally unacceptable.
+_PROMPT_STRUCTURE_MARKERS = (
+    "Identity Verification (mandatory",
+    "mandatory first step",
+    "Appointment Actions (available ONLY",
+    "IMPORTANT RULES FOR TOOL USAGE",
+    "Free navigation",
+    "Tone & style",
+    # Paraphrase variants the LLM commonly produces
+    "primary responsibilities are",
+    "Before any appointment-related action",
+    "I MUST verify the patient",
+    "MUST verify the patient",
+    "date of birth (in YYYY-MM-DD",
+    "Do NOT call",
+    "Only after successful verification",
+    "ToolMessage result confirms",
+)
+
 # Regex patterns for confidential data that varies per patient
 _CONFIDENTIAL_PATTERNS = (
     r"\bP\d{3}\b",  # Internal patient IDs: P001, P002, P003 …
+)
+
+_PROMPT_LEAK_SAFE_FALLBACK = (
+    "I'm sorry, I'm not able to share information about how I work internally. "
+    "I'm here to help you manage your medical appointments. "
+    "To get started, could you please provide your full name, phone number, "
+    "and date of birth so I can verify your identity?"
 )
 
 
 def _strip_prompt_leakage(response: AIMessage) -> AIMessage:
     """
     Scan the LLM's text reply for any fragment that would expose internal
-    system information — tool names, status markers, or raw patient IDs.
+    system information — tool names, status markers, structural prompt
+    sections, or raw patient IDs.
 
-    Behaviour
-    ---------
-    • Messages that contain tool_calls are NOT shown to the end-user;
-      they pass through unchanged.
-    • For plain-text replies: each confidential literal is removed in-place
-      and each confidential pattern is regex-substituted away.
-    • If the cleaned text is shorter than 20 characters (i.e. the content
-      was almost entirely internal boilerplate), a safe generic fallback is
-      returned instead.
-    • All redaction events are logged at WARNING level so they are
-      visible in the audit trail without surfacing to the user.
+    Two-tier strategy
+    -----------------
+    Tier 1 — Structural detection (highest priority):
+      If ANY phrase from _PROMPT_STRUCTURE_MARKERS appears in the reply the
+      content is almost certainly a verbatim repeat or close paraphrase of
+      the system prompt.  Redacting individual phrases would still leave a
+      recognisable copy of the instructions, so the *entire* reply is
+      replaced with a safe generic fallback instead of attempting surgery.
+
+    Tier 2 — Literal / pattern redaction (lower priority):
+      For replies that pass the structural check but still contain specific
+      confidential tokens (tool names, status markers, patient IDs), each
+      token is redacted in-place.  If the result is shorter than 20
+      characters a safe fallback is used.
+
+    Common properties
+    -----------------
+    • Messages that carry tool_calls are not shown to the end-user and pass
+      through unchanged.
+    • All interceptions are logged at WARNING level for the audit trail.
     """
     content = response.content or ""
 
@@ -334,29 +374,41 @@ def _strip_prompt_leakage(response: AIMessage) -> AIMessage:
     if not content or response.tool_calls:
         return response
 
+    # -----------------------------------------------------------------------
+    # Tier 1: structural / paraphrase detection → full replacement
+    # -----------------------------------------------------------------------
+    for marker in _PROMPT_STRUCTURE_MARKERS:
+        if marker in content:
+            logger.warning(
+                "Node: assistant | Prompt leakage guard (tier-1) — "
+                "structural marker '%s' detected; replacing entire reply",
+                marker,
+            )
+            return AIMessage(
+                content=_PROMPT_LEAK_SAFE_FALLBACK,
+                tool_calls=response.tool_calls,
+            )
+
+    # -----------------------------------------------------------------------
+    # Tier 2: token-level redaction
+    # -----------------------------------------------------------------------
     cleaned = content
     leaked = False
 
-    # -----------------------------------------------------------------------
-    # Exact-string redaction
-    # -----------------------------------------------------------------------
     for fragment in _CONFIDENTIAL_LITERALS:
         if fragment in cleaned:
             leaked = True
             logger.warning(
-                "Node: assistant | Prompt leakage guard — redacting literal '%s'",
+                "Node: assistant | Prompt leakage guard (tier-2) — redacting literal '%s'",
                 fragment,
             )
             cleaned = cleaned.replace(fragment, "")
 
-    # -----------------------------------------------------------------------
-    # Regex-pattern redaction
-    # -----------------------------------------------------------------------
     for pattern in _CONFIDENTIAL_PATTERNS:
         if re.search(pattern, cleaned):
             leaked = True
             logger.warning(
-                "Node: assistant | Prompt leakage guard — redacting pattern '%s'",
+                "Node: assistant | Prompt leakage guard (tier-2) — redacting pattern '%s'",
                 pattern,
             )
             cleaned = re.sub(pattern, "", cleaned)
@@ -368,15 +420,12 @@ def _strip_prompt_leakage(response: AIMessage) -> AIMessage:
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
 
-    # If the cleaned text is too short to be meaningful, return a safe fallback
+    # If the cleaned text is too short to be meaningful, use a safe fallback
     if len(cleaned) < 20:
-        cleaned = (
-            "I'm sorry, I'm unable to share that information. "
-            "Is there something else I can help you with regarding your appointments?"
-        )
+        cleaned = _PROMPT_LEAK_SAFE_FALLBACK
 
     logger.warning(
-        "Node: assistant | Prompt leakage redacted | "
+        "Node: assistant | Prompt leakage redacted (tier-2) | "
         "original_len=%d cleaned_len=%d",
         len(content),
         len(cleaned),
