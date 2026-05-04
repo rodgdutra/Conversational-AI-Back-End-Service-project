@@ -318,11 +318,9 @@ _PROMPT_STRUCTURE_MARKERS = (
     "Free navigation",
     "Tone & style",
     # Paraphrase variants the LLM commonly produces
-    "primary responsibilities are",
     "Before any appointment-related action",
     "I MUST verify the patient",
     "MUST verify the patient",
-    "date of birth (in YYYY-MM-DD",
     "Do NOT call",
     "Only after successful verification",
     "ToolMessage result confirms",

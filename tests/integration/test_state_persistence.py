@@ -64,7 +64,7 @@ class TestAsyncPersistenceService:
         # Save state
         logger.info(f"Saving state for session {session_id}...")
         save_result = await service.save_state(session_id, test_state)
-        assert save_result is True, "Failed to save state"
+        assert save_result is not None, "Failed to save state"
         
         # Load state
         loaded_state = await service.load_state(session_id)

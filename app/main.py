@@ -275,14 +275,14 @@ async def chat(
         "is_verified": bool(new_state.get("verified", False)),
     }
     
-    save_result = await state_service.save_state(
+    saved_state_id = await state_service.save_state(
         session_id=session_id, 
         state=new_state,
         transition_type="user_message",
         transition_data=transition_data
     )
     
-    if not save_result:
+    if saved_state_id is None:
         logger.warning(
             "POST /chat | Failed to persist state | session_id='%s'",
             session_id
@@ -294,9 +294,8 @@ async def chat(
     reply = _get_last_ai_reply(new_state)
     verified = bool(new_state.get("verified", False))
 
-    # Get state metadata if available
-    state_metadata = new_state.get("_metadata", {})
-    state_id = state_metadata.get("state_id", 0)
+    # Use the state_id returned directly by save_state
+    state_id = saved_state_id or 0
 
     logger.info(
         "POST /chat | Response sent | session_id='%s' state_id=%d verified=%s reply_len=%d",
