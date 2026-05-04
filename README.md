@@ -1,6 +1,6 @@
 # Conversational AI Back-End Service with LangGraph
 
-A healthcare back-end service that uses a LangGraph multi-agent workflow to help patients manage their appointments through a conversational interface.
+A healthcare back-end service leveraging a LangGraph multi-agent workflow to help patients manage appointments via a conversational interface. The primary assistant agent first authenticates the user before granting access to scheduling tools. Additionally, a dedicated review agent monitors the workflow to verify and correct the assistant's actions as needed and user actions as well.
 
 ## Features
 
@@ -9,6 +9,9 @@ A healthcare back-end service that uses a LangGraph multi-agent workflow to help
 - Appointment listing, confirmation, and cancellation
 - Persistent state tracking with PostgreSQL
 - Multi-agent workflow using LangGraph
+- Assistant agent and review agent working together
+
+![Workflow](app/graph_images/multi_agent_graph.png)
 
 ## Setup
 
@@ -51,6 +54,9 @@ The API has the following endpoints:
 - `GET /`: Health check
 - `POST /chat`: Send a message to the assistant
 - `DELETE /chat/{session_id}`: Clear a conversation session
+- `GET /sessions/{session_id}/states` : Get all states related to a session
+- `GET /sessions/{session_id}/states/{state_id}` : Get specific state_id related to  a session
+
 
 Example request:
 ```json
@@ -145,6 +151,7 @@ The service follows a layered architecture:
 - `app/main.py`: FastAPI application entry point
 - `app/agent/graph.py`: LangGraph workflow definition
 - `app/agent/tools.py`: LangChain tools for appointment management
+- `app/agent/review_tools.py`: LangChain tools for the review agent
 - `app/agent/state.py`: State definitions and transitions
 - `app/agent/persistence.py`: PostgreSQL state persistence
 - `app/data.py`: Data access layer
