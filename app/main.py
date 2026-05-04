@@ -6,7 +6,7 @@ Run with:
 """
 
 import os
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
@@ -19,8 +19,8 @@ from app.db import init_db
 from app.data import initialize_mock_data
 from app.logger import get_logger
 from app.models import (
-    ChatRequest, ChatResponse, SessionStatesResponse, 
-    SessionTransitionsResponse, StateMetadata, StateTransitionData
+    ChatRequest, ChatResponse, ReviewVerdict, SessionStatesResponse,
+    SessionTransitionsResponse, StateMetadata, StateTransitionData,
 )
 from app.config import config
 
@@ -91,7 +91,25 @@ def get_state_service():
 # ---------------------------------------------------------------------------
 
 def _get_last_ai_reply(state: dict) -> str:
-    """Extract the last AI message text from the graph state."""
+    """
+    Return the reply text that should be delivered to the user.
+
+    If the reviewer issued a "block" verdict with a replacement_message, that
+    safe fallback is returned instead of the original assistant response.
+    Otherwise the last AIMessage text is returned as usual.
+    """
+    # Check for a reviewer-supplied replacement first
+    review_result = state.get("review_result") or {}
+    if review_result.get("action") == "replace" and review_result.get("replacement_message"):
+        logger.info(
+            "_get_last_ai_reply | Using reviewer replacement message | "
+            "verdict='%s' flags=%s",
+            review_result.get("verdict"),
+            review_result.get("flags"),
+        )
+        return review_result["replacement_message"]
+
+    # Normal path: return the last AI message text
     for msg in reversed(state["messages"]):
         if isinstance(msg, AIMessage):
             # AIMessage.content can be a str or a list of content blocks
@@ -269,10 +287,13 @@ async def chat(
     # -----------------------------------------------------------------------
     # Persist updated state with transition information
     # -----------------------------------------------------------------------
+    review_result = new_state.get("review_result") or {}
     transition_data = {
         "user_message": user_message,
         "reply_length": len(_get_last_ai_reply(new_state)),
         "is_verified": bool(new_state.get("verified", False)),
+        "review_verdict": review_result.get("verdict", "pass"),
+        "review_flags": review_result.get("flags", []),
     }
     
     saved_state_id = await state_service.save_state(
@@ -303,11 +324,27 @@ async def chat(
     )
     logger.debug("POST /chat | Reply preview | session_id='%s' reply='%.120s'", session_id, reply)
 
+    # Build the review verdict summary for the response
+    review_verdict_obj: Optional[ReviewVerdict] = None
+    if review_result:
+        review_verdict_obj = ReviewVerdict(
+            verdict=review_result.get("verdict", "pass"),
+            flags=review_result.get("flags", []),
+            action=review_result.get("action", "none"),
+            summary=review_result.get("summary", ""),
+        )
+        if review_verdict_obj.verdict in ("flag", "block"):
+            logger.info(
+                "POST /chat | Review: verdict='%s' flags=%s | session_id='%s'",
+                review_verdict_obj.verdict, review_verdict_obj.flags, session_id,
+            )
+
     return ChatResponse(
-        session_id=session_id, 
-        reply=reply, 
+        session_id=session_id,
+        reply=reply,
         verified=verified,
-        state_id=state_id
+        state_id=state_id,
+        review=review_verdict_obj,
     )
 
 

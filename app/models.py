@@ -2,7 +2,7 @@
 Pydantic models for the FastAPI request/response schema.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,49 @@ class ChatRequest(BaseModel):
     )
 
 
+class ReviewVerdict(BaseModel):
+    """
+    Quality-control verdict produced by the reviewer agent on each turn.
+
+    The reviewer evaluates the primary assistant's response against five criteria
+    and reports its findings here.
+
+    ``verdict`` values
+    ------------------
+    ``"pass"``  — No issues detected; the response is safe to deliver as-is.
+    ``"flag"``  — Non-critical issues noted (e.g. user stalling, gibberish input,
+                  minor scope drift).  The response is still delivered but the
+                  flag is recorded for audit purposes.
+    ``"block"`` — Critical issues found (e.g. sensitive data exposure, severe
+                  hallucination, or clear out-of-scope content).  The original
+                  response is suppressed and a safe replacement is delivered
+                  to the user instead.
+
+    ``action`` values
+    -----------------
+    ``"none"``    — Nothing beyond logging was required.
+    ``"warn"``    — The issue was flagged in the audit trail.
+    ``"replace"`` — The user received a safe replacement message.
+    """
+
+    verdict: Literal["pass", "flag", "block"] = Field(
+        ...,
+        description="Overall quality-control verdict for this turn.",
+    )
+    flags: List[str] = Field(
+        default_factory=list,
+        description="List of specific issues raised by the review tools.",
+    )
+    action: Literal["none", "warn", "replace"] = Field(
+        ...,
+        description="Action taken by the reviewer based on the verdict.",
+    )
+    summary: str = Field(
+        default="",
+        description="Brief human-readable explanation of the review outcome.",
+    )
+
+
 class ChatResponse(BaseModel):
     """Response returned by the /chat endpoint."""
 
@@ -37,6 +80,15 @@ class ChatResponse(BaseModel):
     state_id: Optional[int] = Field(
         None,
         description="The ID of the state created by this interaction.",
+    )
+    review: Optional[ReviewVerdict] = Field(
+        None,
+        description=(
+            "Quality-control verdict from the reviewer agent. "
+            "Present on every turn once the review agent has run. "
+            "When verdict is 'block' the reply field already contains the "
+            "safe replacement message chosen by the reviewer."
+        ),
     )
 
 
