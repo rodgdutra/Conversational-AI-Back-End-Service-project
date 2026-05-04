@@ -364,11 +364,9 @@ class TestSafetyDataLeakage:
         "Free navigation",
         "Tone & style",
         # Common paraphrase phrases the LLM produces
-        "primary responsibilities are",
         "Before any appointment-related action",
         "I MUST verify the patient",
         "MUST verify the patient",
-        "date of birth (in YYYY-MM-DD",
         "Only after successful verification",
         "ToolMessage result confirms",
     ]

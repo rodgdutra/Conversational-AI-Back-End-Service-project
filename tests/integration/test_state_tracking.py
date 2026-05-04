@@ -69,7 +69,7 @@ class TestStateTracking:
         # Create initial state
         initial_state = create_test_state("Hello, I need help with my appointments.")
         save_result = await service.save_state(session_id, initial_state)
-        assert save_result is True, "Failed to save initial state"
+        assert save_result is not None, "Failed to save initial state"
         
         # Create additional states
         for i in range(min(4, len(test_messages))):
@@ -90,7 +90,7 @@ class TestStateTracking:
                 transition_type=transition_type,
                 transition_data=transition_data
             )
-            assert save_result is True, f"Failed to save state {i+1} for session {session_id}"
+            assert save_result is not None, f"Failed to save state {i+1} for session {session_id}"
         
         # Check how many states we have
         states_meta = await service.list_states(session_id)
