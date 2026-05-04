@@ -218,34 +218,6 @@ def _build_llm() -> ChatOpenRouter:
 
     return llm.bind_tools(ALL_TOOLS)
 
-
-def _build_review_llm():
-    """
-    Build the reviewer LLM instance (with review tools bound).
-
-    Uses the same underlying model as the primary assistant so that no extra
-    configuration is needed, but binds the five review tools instead of the
-    appointment tools.
-    """
-    if config.USE_OLLAMA:
-        llm = ChatOllama(
-            base_url=config.OLLAMA_BASE_URL,
-            model=config.OLLAMA_MODEL,
-        )
-        logger.info("Review LLM initialized using Ollama.")
-        return llm.bind_tools(REVIEW_TOOLS)
-
-    llm = ChatOpenRouter(
-        model=OPENROUTER_MODEL,
-        temperature=0,
-        max_tokens=1024,
-        api_key=OPENROUTER_API_KEY,
-        base_url=OPENROUTER_BASE_URL,
-    )
-    logger.info("Review LLM initialized using OpenRouter.")
-    return llm.bind_tools(REVIEW_TOOLS)
-
-
 # ---------------------------------------------------------------------------
 # Hallucination detection helpers
 # ---------------------------------------------------------------------------
@@ -1284,6 +1256,17 @@ def build_graph() -> StateGraph:
     builder.add_edge("reviewer", END)
 
     graph = builder.compile()
+    graph_image = graph.get_graph()
+
+    # Get the graph and draw it as PNG
+    png_bytes = graph_image.draw_mermaid_png()
+    
+    # Save to file
+    graph_image_path = "multi_agent_graph.png"
+    with open(graph_image_path, "wb") as f:
+        f.write(png_bytes)
+        
+    logger.info(f"LangGraph workflow exported to image: {graph_image_path}")
     logger.info("LangGraph compiled successfully | nodes=%s", list(graph.nodes.keys()))
     return graph
 
