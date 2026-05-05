@@ -73,7 +73,6 @@ from langgraph.graph import StateGraph, END
 
 from app.agent.state import AgentState
 from app.agent.tools import ALL_TOOLS
-from app.agent.review_tools import REVIEW_TOOLS
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -566,8 +565,6 @@ def _intercept_hallucination(
 # Reviewer helpers
 # ---------------------------------------------------------------------------
 
-_REVIEW_TOOL_MAP = {t.name: t for t in REVIEW_TOOLS}
-
 
 def _count_unverified_turns(messages: list, verified: bool) -> int:
     """
@@ -782,15 +779,17 @@ def assistant_node(state: AgentState) -> dict:
 
     response: AIMessage = llm.invoke(messages)
 
-    # ------------------------------------------------------------------
-    # Hallucination guard
-    # ------------------------------------------------------------------
-    response = _intercept_hallucination(state, response)
+    # Only use hallucination and prompt guards if reviewer is not used
+    if not config.USE_REVIEWER:
+        # ------------------------------------------------------------------
+        # Hallucination guard
+        # ------------------------------------------------------------------
+        response = _intercept_hallucination(state, response)
 
-    # ------------------------------------------------------------------
-    # Prompt-leakage guard
-    # ------------------------------------------------------------------
-    response = _strip_prompt_leakage(response)
+        # ------------------------------------------------------------------
+        # Prompt-leakage guard
+        # ------------------------------------------------------------------
+        response = _strip_prompt_leakage(response)
 
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
     if tool_calls:
@@ -1016,12 +1015,12 @@ def reviewer_node(state: AgentState) -> dict:
     ]
 
     # ------------------------------------------------------------------
-    # LLM agent loop (max 8 iterations)
+    # LLM agent loop (max 3 iterations)
     # ------------------------------------------------------------------
     eligible_tool_map = {t.name: t for t in eligible_tools}
     final_verdict_text = ""
 
-    for iteration in range(8):
+    for iteration in range(3):
         review_response: AIMessage = review_llm.invoke(review_messages)
         review_messages.append(review_response)
 
@@ -1214,9 +1213,17 @@ def should_use_tools(state: AgentState) -> Literal["tools", "reviewer"]:
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         logger.debug("Router: should_use_tools → 'tools'")
         return "tools"
+    
+    if not config.USE_REVIEWER:
+        logger.debug("Router: should_use_tools → '__end__'")
+        return "__end__"
+    
+    # Only use reviewer when config is set
+    
     logger.debug("Router: should_use_tools → 'reviewer'")
     return "reviewer"
-
+    
+    
 
 # ---------------------------------------------------------------------------
 # Build the graph
@@ -1243,30 +1250,35 @@ def build_graph() -> StateGraph:
     builder.add_node("update_state", update_state_node)
     builder.add_node("reviewer", reviewer_node)
 
-    builder.set_entry_point("assistant")
+    if config.USE_REVIEWER:
+        logger.info("Using Reviewer agent in the agentic workflow")
 
+        conditional_dict = {"tools": "tools", "reviewer": "reviewer"}
+    else:
+        logger.info("Not using Reviewer agent in the agentic workflow")
+        logger.info("Relying in guardrails to prevent hallucination and prompt leak")
+        
+        conditional_dict = {"tools": "tools", "__end__": END}
+        
+    builder.set_entry_point("assistant")
+    
+    
+    
     builder.add_conditional_edges(
         "assistant",
         should_use_tools,
-        {"tools": "tools", "reviewer": "reviewer"},
+        conditional_dict,
     )
 
     builder.add_edge("tools", "update_state")
     builder.add_edge("update_state", "assistant")
-    builder.add_edge("reviewer", END)
+    
+    if config.USE_REVIEWER:
+        builder.add_edge("reviewer", END)
 
     graph = builder.compile()
-    graph_image = graph.get_graph()
-
-    # Get the graph and draw it as PNG
-    png_bytes = graph_image.draw_mermaid_png()
-    
-    # Save to file
-    graph_image_path = "multi_agent_graph.png"
-    with open(graph_image_path, "wb") as f:
-        f.write(png_bytes)
         
-    logger.info(f"LangGraph workflow exported to image: {graph_image_path}")
+    # logger.info(f"LangGraph workflow exported to image: {graph_image_path}")
     logger.info("LangGraph compiled successfully | nodes=%s", list(graph.nodes.keys()))
     return graph
 
