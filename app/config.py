@@ -26,6 +26,10 @@ class Config:
     
     # Bypass database data retrieval
     USE_MOCK_DATA = os.getenv("USE_MOCK_DATA", "false").lower() in ("true", "1", "yes")
+    
+    # Langgraph workflow options
+    USE_REVIEWER=os.getenv("USE_REVIEWER", "false").lower() in ("true", "1", "yes")
+
 
     # Database URL construction
     @property
